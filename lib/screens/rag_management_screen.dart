@@ -267,15 +267,14 @@ class _EmbedderTab extends StatelessWidget {
                 onPressed: provider.isLoading
                     ? null
                     : () async {
-                        // Show warning if no vocab and backend is tflite
-                        final cache = context.read<CacheService>();
-                        if (cache.embeddingBackend == 'tflite' && model.vocabPath == null) {
+                        // Show warning if no vocab
+                        if (model.vocabPath == null) {
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(
-                                  'No vocab.txt found. TFLite backend requires vocab.txt. '
-                                  'Switch to Gemma backend or re-import with a zip containing vocab.txt.',
+                                  'No vocab.txt found. Re-import with a zip containing '
+                                  'both the .tflite model and vocab.txt.',
                                   style: AppColors.font(size: 12),
                                 ),
                                 backgroundColor: AppColors.warning,
