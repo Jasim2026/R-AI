@@ -9,6 +9,8 @@ class LLMModel {
   final String? description;
   final int? parameterSize;
   final BackendType backend;
+  final List<BackendType> supportedBackends;
+  final String? detectedParams;
   final String? cacheDir;
   final DateTime importedAt;
   final bool isDefault;
@@ -20,6 +22,8 @@ class LLMModel {
     this.description,
     this.parameterSize,
     this.backend = BackendType.gpu,
+    this.supportedBackends = const [],
+    this.detectedParams,
     this.cacheDir,
     DateTime? importedAt,
     this.isDefault = false,
@@ -32,6 +36,8 @@ class LLMModel {
     String? description,
     int? parameterSize,
     BackendType? backend,
+    List<BackendType>? supportedBackends,
+    String? detectedParams,
     String? cacheDir,
     bool? isDefault,
   }) {
@@ -42,6 +48,8 @@ class LLMModel {
       description: description ?? this.description,
       parameterSize: parameterSize ?? this.parameterSize,
       backend: backend ?? this.backend,
+      supportedBackends: supportedBackends ?? this.supportedBackends,
+      detectedParams: detectedParams ?? this.detectedParams,
       cacheDir: cacheDir ?? this.cacheDir,
       importedAt: importedAt,
       isDefault: isDefault ?? this.isDefault,
@@ -67,6 +75,15 @@ class LLMModel {
 
   bool get isLiteRTLM => path.endsWith('.litertlm');
 
+  bool get hasMetadata => supportedBackends.isNotEmpty;
+
+  BackendType get autoSelectedBackend {
+    if (supportedBackends.isEmpty) return backend;
+    if (supportedBackends.contains(BackendType.gpu)) return BackendType.gpu;
+    if (supportedBackends.contains(BackendType.npu)) return BackendType.npu;
+    return BackendType.cpu;
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -75,6 +92,8 @@ class LLMModel {
       'description': description,
       'parameterSize': parameterSize,
       'backend': backend.name,
+      'supportedBackends': supportedBackends.map((b) => b.name).toList(),
+      'detectedParams': detectedParams,
       'cacheDir': cacheDir,
       'importedAt': importedAt.toIso8601String(),
       'isDefault': isDefault,
@@ -92,6 +111,14 @@ class LLMModel {
         (e) => e.name == map['backend'],
         orElse: () => BackendType.gpu,
       ),
+      supportedBackends: (map['supportedBackends'] as List?)
+              ?.map((b) => BackendType.values.firstWhere(
+                    (e) => e.name == b,
+                    orElse: () => BackendType.gpu,
+                  ))
+              .toList() ??
+          [],
+      detectedParams: map['detectedParams'],
       cacheDir: map['cacheDir'],
       importedAt: DateTime.parse(map['importedAt']),
       isDefault: map['isDefault'] ?? false,

@@ -41,6 +41,7 @@ class MainActivity : FlutterActivity() {
                 "sendMessage" -> handleSendMessage(call.arguments as Map<*, *>, result)
                 "sendMessageAsync" -> handleSendMessageAsync(call.arguments as Map<*, *>, result)
                 "cancel" -> handleCancel(result)
+                "readModelMetadata" -> handleReadModelMetadata(call.arguments as Map<*, *>, result)
                 else -> result.notImplemented()
             }
         }
@@ -62,6 +63,54 @@ class MainActivity : FlutterActivity() {
         result.success(true)
     }
 
+    private fun handleReadModelMetadata(args: Map<*, *>, result: MethodChannel.Result) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val modelPath = args["modelPath"] as String
+                val supportedBackends = mutableListOf<String>()
+
+                // Test GPU backend
+                try {
+                    val config = EngineConfig(modelPath = modelPath, backend = Backend.GPU())
+                    val eng = Engine(config)
+                    eng.initialize()
+                    eng.close()
+                    supportedBackends.add("gpu")
+                } catch (_: Exception) {}
+
+                // Test NPU backend
+                try {
+                    val config = EngineConfig(modelPath = modelPath, backend = Backend.NPU())
+                    val eng = Engine(config)
+                    eng.initialize()
+                    eng.close()
+                    supportedBackends.add("npu")
+                } catch (_: Exception) {}
+
+                // Test CPU backend
+                try {
+                    val config = EngineConfig(modelPath = modelPath, backend = Backend.CPU())
+                    val eng = Engine(config)
+                    eng.initialize()
+                    eng.close()
+                    supportedBackends.add("cpu")
+                } catch (_: Exception) {}
+
+                val metadata = mapOf(
+                    "supportedBackends" to supportedBackends
+                )
+
+                scope.launch(Dispatchers.Main) {
+                    result.success(metadata)
+                }
+            } catch (e: Exception) {
+                scope.launch(Dispatchers.Main) {
+                    result.error("METADATA_FAILED", e.message, null)
+                }
+            }
+        }
+    }
+
     private fun handleLoadModel(args: Map<*, *>, result: MethodChannel.Result) {
         scope.launch(Dispatchers.IO) {
             try {
@@ -70,8 +119,8 @@ class MainActivity : FlutterActivity() {
                 val cacheDir = args["cacheDir"] as? String
 
                 val backend = when (backendName) {
-                    "GPU" -> Backend.GPU()
-                    "NPU" -> Backend.NPU()
+                    "gpu" -> Backend.GPU()
+                    "npu" -> Backend.NPU()
                     else -> Backend.CPU()
                 }
 

@@ -94,6 +94,10 @@ class ModelCard extends StatelessWidget {
                           _buildChip(model.parameterLabel, AppColors.primary),
                           const SizedBox(width: 6),
                           _buildChip(model.backendName, AppColors.accent),
+                          if (model.hasMetadata) ...[
+                            const SizedBox(width: 6),
+                            _buildChip('Detected', AppColors.success),
+                          ],
                           const SizedBox(width: 6),
                           _buildChip(
                             _formatSize(model.path),

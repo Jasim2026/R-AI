@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../providers/model_provider.dart';
 import '../models/llm_model.dart';
+import '../services/litert_service.dart';
 import '../widgets/model_card.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/gradient_background.dart';
@@ -41,7 +42,19 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
 
       setState(() => _isImporting = true);
 
-      _showModelDetailsDialog(file.name, file.path!);
+      ModelMetadata? metadata;
+      if (file.name.endsWith('.litertlm')) {
+        try {
+          final service = LiteRTService();
+          await service.initialize();
+          metadata = await service.readModelMetadata(file.path!);
+          service.dispose();
+        } catch (e) {
+          debugPrint('Failed to read model metadata: $e');
+        }
+      }
+
+      _showModelDetailsDialog(file.name, file.path!, metadata);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -53,13 +66,16 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
     }
   }
 
-  void _showModelDetailsDialog(String fileName, String filePath) {
+  void _showModelDetailsDialog(String fileName, String filePath, ModelMetadata? metadata) {
     final nameController = TextEditingController(
       text: fileName.replaceAll(RegExp(r'\.[^.]+$'), ''),
     );
     final descController = TextEditingController();
-    BackendType backend = BackendType.gpu;
+    BackendType backend = metadata?.supportedBackends.isNotEmpty == true
+        ? metadata!.supportedBackends.first
+        : BackendType.gpu;
     int? paramSize;
+    final supportedBackends = metadata?.supportedBackends ?? [];
 
     showModalBottomSheet(
       context: context,
@@ -68,7 +84,7 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
           return Container(
-            height: MediaQuery.of(context).size.height * 0.65,
+            height: MediaQuery.of(context).size.height * 0.72,
             decoration: const BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -136,6 +152,79 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                         hint: 'Brief description',
                       ),
                       const SizedBox(height: 20),
+                      if (supportedBackends.isNotEmpty) ...[
+                        Row(
+                          children: [
+                            const Text(
+                              'DETECTED ACCELERATORS',
+                              style: TextStyle(
+                                color: AppColors.textHint,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: AppColors.accent.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text(
+                                'AUTO',
+                                style: TextStyle(
+                                  color: AppColors.accent,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: supportedBackends.map((type) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceLight,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: AppColors.accent.withOpacity(0.3),
+                                  width: 0.5,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    type == BackendType.npu
+                                        ? Icons.speed_rounded
+                                        : type == BackendType.gpu
+                                            ? Icons.bolt_rounded
+                                            : Icons.memory_rounded,
+                                    color: AppColors.accent,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    type.name.toUpperCase(),
+                                    style: const TextStyle(
+                                      color: AppColors.textPrimary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 20),
+                      ],
                       const Text(
                         'PREFERRED ACCELERATOR',
                         style: TextStyle(
@@ -149,6 +238,7 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                       Row(
                         children: BackendType.values.map((type) {
                           final isSelected = backend == type;
+                          final isSupported = supportedBackends.contains(type);
                           return Expanded(
                             child: Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -198,6 +288,17 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
+                                        if (isSupported) ...[
+                                          const SizedBox(height: 4),
+                                          Container(
+                                            width: 6,
+                                            height: 6,
+                                            decoration: const BoxDecoration(
+                                              color: AppColors.success,
+                                              shape: BoxShape.circle,
+                                            ),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                   ),
@@ -219,6 +320,14 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                         'Size',
                         _formatFileSize(File(filePath).lengthSync()),
                       ),
+                      if (metadata?.detectedParams != null) ...[
+                        const SizedBox(height: 8),
+                        _buildInfoRow(
+                          Icons.info_outline_rounded,
+                          'Info',
+                          metadata!.detectedParams!,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -247,6 +356,8 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                                       : descController.text.trim(),
                                   backend: backend,
                                   parameterSize: paramSize,
+                                  supportedBackends: supportedBackends,
+                                  detectedParams: metadata?.detectedParams,
                                 );
 
                                 await context.read<ModelProvider>().addModel(model);
@@ -379,145 +490,92 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          title: const Text('Models'),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          title: const Text(
+            'Models',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           actions: [
-            IconButton(
-              onPressed: _isImporting ? null : _importModel,
-              icon: const Icon(Icons.add_rounded, size: 24),
-              tooltip: 'Import model',
+            Container(
+              margin: const EdgeInsets.only(right: 16),
+              child: Material(
+                color: AppColors.primary.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: _isImporting ? null : _importModel,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _isImporting
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.primary,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.add_rounded,
+                                color: AppColors.primary,
+                                size: 18,
+                              ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _isImporting ? 'Importing...' : 'Import',
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
         body: Consumer<ModelProvider>(
-          builder: (context, modelProvider, _) {
-            if (modelProvider.isLoading && modelProvider.models.isEmpty) {
-              return const Center(
-                child: CircularProgressIndicator(color: AppColors.primary),
-              );
-            }
-
+          builder: (context, modelProvider, child) {
             if (modelProvider.models.isEmpty) {
               return EmptyState(
-                icon: Icons.memory_rounded,
-                title: 'No Models Yet',
-                subtitle:
-                    'Import a .litertlm model file from your device storage to get started.\n\nDownload models from HuggingFace LiteRT Community.',
+                icon: Icons.phone_android_rounded,
+                title: 'No models yet',
+                subtitle: 'Import a .litertlm model file to get started',
                 actionLabel: 'Import Model',
                 onAction: _importModel,
               );
             }
 
-            return Column(
-              children: [
-                Container(
-                  margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: AppColors.primary.withOpacity(0.2),
-                      width: 0.5,
-                    ),
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: modelProvider.models.length,
+              itemBuilder: (context, index) {
+                final model = modelProvider.models[index];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: ModelCard(
+                    model: model,
+                    isSelected: model.id == modelProvider.currentModel?.id,
+                    onTap: () => modelProvider.selectModel(model),
+                    onDelete: () => modelProvider.removeModel(model.id),
                   ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.lightbulb_outline,
-                        color: AppColors.warning,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          '${modelProvider.models.length} model${modelProvider.models.length == 1 ? '' : 's'} imported. Tap a model to load it.',
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: modelProvider.models.length,
-                    itemBuilder: (context, index) {
-                      final model = modelProvider.models[index];
-                      final isSelected =
-                          modelProvider.selectedModel?.id == model.id;
-
-                      return ModelCard(
-                        model: model,
-                        isSelected: isSelected,
-                        onTap: () async {
-                          if (isSelected) {
-                            await modelProvider.unloadModel();
-                          } else {
-                            final success = await modelProvider.selectModel(model);
-                            if (!success && mounted && modelProvider.error != null) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(modelProvider.error!),
-                                  backgroundColor: AppColors.error,
-                                  duration: const Duration(seconds: 4),
-                                ),
-                              );
-                              modelProvider.clearError();
-                            }
-                          }
-                        },
-                        onDelete: () => _confirmDelete(
-                          context,
-                          modelProvider,
-                          model,
-                        ),
-                        onSetDefault: () =>
-                            modelProvider.setDefaultModel(model.id),
-                      );
-                    },
-                  ),
-                ),
-              ],
+                );
+              },
             );
           },
         ),
-      ),
-    );
-  }
-
-  void _confirmDelete(
-    BuildContext context,
-    ModelProvider modelProvider,
-    LLMModel model,
-  ) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Remove Model'),
-        content: Text(
-          'Are you sure you want to remove "${model.name}"? This will delete the model file from storage.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              modelProvider.removeModel(model.id);
-              Navigator.pop(context);
-            },
-            child: const Text(
-              'Remove',
-              style: TextStyle(color: AppColors.error),
-            ),
-          ),
-        ],
       ),
     );
   }

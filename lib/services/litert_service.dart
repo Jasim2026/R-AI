@@ -2,6 +2,16 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import '../models/llm_model.dart';
 
+class ModelMetadata {
+  final List<BackendType> supportedBackends;
+  final String? detectedParams;
+
+  ModelMetadata({
+    required this.supportedBackends,
+    this.detectedParams,
+  });
+}
+
 class LiteRTService {
   static const MethodChannel _channel = MethodChannel('com.rai/litert');
   static const EventChannel _eventChannel = EventChannel('com.rai/litert_stream');
@@ -21,6 +31,32 @@ class LiteRTService {
       _isInitialized = true;
     } on PlatformException catch (e) {
       throw Exception('Failed to initialize LiteRT: ${e.message}');
+    }
+  }
+
+  Future<ModelMetadata> readModelMetadata(String modelPath) async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    try {
+      final result = await _channel.invokeMethod('readModelMetadata', {
+        'modelPath': modelPath,
+      });
+
+      final backends = (result['supportedBackends'] as List)
+          .map((b) => BackendType.values.firstWhere(
+                (e) => e.name == b,
+                orElse: () => BackendType.cpu,
+              ))
+          .toList();
+
+      return ModelMetadata(
+        supportedBackends: backends,
+        detectedParams: result['detectedParams'] as String?,
+      );
+    } on PlatformException catch (e) {
+      throw Exception('Failed to read model metadata: ${e.message}');
     }
   }
 
