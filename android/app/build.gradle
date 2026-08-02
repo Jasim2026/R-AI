@@ -44,6 +44,8 @@ android {
 
     packagingOptions {
         pickFirst 'lib/*/libtensorflowlite_jni.so'
+        pickFirst 'lib/*/libtensorflowlite_gpu_jni.so'
+        pickFirst 'lib/*/libtensorflowlite_c.so'
     }
 
 }
