@@ -266,7 +266,7 @@ class _EmbedderTab extends StatelessWidget {
                 onPressed: () async {
                   await provider.loadModel(model);
                 },
-                child: Text('Load', style: AppColors.font(fontSize: 12)),
+                child: Text('Load', style: AppColors.font(size: 12)),
               ),
             IconButton(
               icon: Icon(Icons.delete_outline, size: 18),
@@ -315,7 +315,7 @@ class _EmbedderTab extends StatelessWidget {
               : () async {
                   await provider.importModel();
                 },
-          child: const Row(
+          child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(Icons.add_rounded, color: AppColors.primary, size: 20),
@@ -592,7 +592,7 @@ class _DocumentsTab extends StatelessWidget {
               ),
             );
           },
-          child: const Row(
+          child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(Icons.file_upload_outlined, color: AppColors.primary, size: 20),
@@ -624,7 +624,7 @@ class _DocumentsTab extends StatelessWidget {
           onTap: () {
             _showAddTextDialog(context, provider);
           },
-          child: const Row(
+          child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(Icons.edit_note_rounded, color: AppColors.accent, size: 20),
@@ -763,7 +763,7 @@ class _ProcessingDialogState extends State<_ProcessingDialog> {
       // First, chunk to get total
       final chunker = TextChunker(
         chunkSize: widget.chunkSize,
-        overlap: widget.chunkOverlap,
+        chunkOverlap: widget.chunkOverlap,
       );
       final chunks = chunker.chunk(text);
       _total = chunks.length;

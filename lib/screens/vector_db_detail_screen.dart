@@ -88,7 +88,7 @@ class _VectorDbDetailScreenState extends State<VectorDbDetailScreen> {
   }
 
   Widget _buildEmptyState() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -96,7 +96,7 @@ class _VectorDbDetailScreenState extends State<VectorDbDetailScreen> {
           SizedBox(height: 16),
           Text(
             'No chunks in this database',
-            style: AppColors.font(color: AppColors.textHint, fontSize: 16),
+            style: AppColors.font(color: AppColors.textHint, size: 16),
           ),
         ],
       ),

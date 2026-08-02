@@ -148,7 +148,7 @@ class _CodeBlockBuilder extends MarkdownElementBuilder {
                     style: GoogleFonts.jetBrainsMono(
                       color: AppColors.primary.withOpacity(0.7),
                       fontSize: 10,
-                      weight: FontWeight.w500,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
