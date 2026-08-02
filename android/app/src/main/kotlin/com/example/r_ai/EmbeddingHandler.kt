@@ -56,9 +56,7 @@ class EmbeddingHandler(private val context: Context) {
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            isInitialized = false
-            embeddingDimension = 0
-            false
+            throw RuntimeException("Embedding model load failed: ${e.message}", e)
         }
     }
 

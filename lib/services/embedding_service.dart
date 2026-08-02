@@ -30,6 +30,8 @@ class EmbeddingService {
       return _isInitialized;
     } on PlatformException catch (e) {
       throw Exception('Failed to initialize embedding: ${e.message}');
+    } catch (e) {
+      throw Exception('Failed to initialize embedding: $e');
     }
   }
 

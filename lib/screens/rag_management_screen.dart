@@ -273,7 +273,7 @@ class _EmbedderTab extends StatelessWidget {
                             SnackBar(
                               content: Text(error, style: AppColors.font(size: 12)),
                               backgroundColor: AppColors.error,
-                              duration: const Duration(seconds: 4),
+                              duration: const Duration(seconds: 6),
                             ),
                           );
                         }

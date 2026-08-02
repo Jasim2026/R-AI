@@ -143,8 +143,9 @@ class MainActivity : FlutterActivity() {
                     result.success(success)
                 }
             } catch (e: Exception) {
+                val errorMessage = e.cause?.message ?: e.message ?: "Unknown error"
                 withContext(Dispatchers.Main) {
-                    result.error("EMBEDDING_INIT_FAILED", e.message, null)
+                    result.error("EMBEDDING_INIT_FAILED", errorMessage, null)
                 }
             }
         }
