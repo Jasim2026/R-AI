@@ -180,7 +180,7 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                                           type == BackendType.npu
                                               ? Icons.speed_rounded
                                               : type == BackendType.gpu
-                                                  ? Icons.graphics_chip_outlined
+                                                  ? Icons.bolt_rounded
                                                   : Icons.memory_rounded,
                                           color: isSelected
                                               ? AppColors.primary
