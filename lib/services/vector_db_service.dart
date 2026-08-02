@@ -169,8 +169,9 @@ class VectorDbService {
     header.setUint32(8, oldCount + texts.length, Endian.little);
     final updated = header.buffer.asUint8List();
 
-    // Rewrite just the header
-    final raf = await file.open(mode: FileMode.writeOnly);
+    // Rewrite just the header using random access (don't truncate!)
+    final raf = await file.open(mode: FileMode.writeOnlyRandomAccess);
+    await raf.setPosition(0);
     await raf.writeFrom(updated, 0, _headerSize);
     await raf.close();
 

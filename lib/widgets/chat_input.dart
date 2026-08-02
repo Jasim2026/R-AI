@@ -95,7 +95,68 @@ class _ChatInputState extends State<ChatInput> {
   Widget build(BuildContext context) {
     return Consumer<ChatProvider>(
       builder: (context, chatProvider, _) {
-        return Container(
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // RAG progress bar
+            if (chatProvider.isRagSearching)
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOutCubic,
+                height: 48,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.08),
+                  border: Border(
+                    top: BorderSide(
+                      color: AppColors.primary.withOpacity(0.2),
+                      width: 0.5,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        value: chatProvider.ragProgress,
+                        color: AppColors.primary,
+                        backgroundColor: AppColors.surfaceLight,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            chatProvider.ragStatus,
+                            style: AppColors.font(
+                              size: 12,
+                              color: AppColors.primary,
+                              weight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          LinearProgressIndicator(
+                            value: chatProvider.ragProgress,
+                            backgroundColor: AppColors.surfaceLight,
+                            color: AppColors.primary,
+                            minHeight: 2,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            // Input area
+            Container(
           padding: EdgeInsets.only(
             left: 12,
             right: 8,
@@ -158,6 +219,8 @@ class _ChatInputState extends State<ChatInput> {
                   : _buildSendButton(),
             ],
           ),
+            ),
+          ],
         );
       },
     );

@@ -105,7 +105,46 @@ class TfliteEmbeddingHandler {
       _logService.log('TfliteEmbeddingHandler', 'Output type: $_outputType, dim: $_embeddingDimension');
 
       _logService.log('TfliteEmbeddingHandler', 'Running test embedding...');
-      final testResult = await embed('test');
+
+      // Try test embedding with retry logic for non-fp32 models
+      Float32List? testResult;
+      try {
+        testResult = await embed('test');
+      } catch (e) {
+        _logService.log('TfliteEmbeddingHandler', 'First test embed failed: $e');
+      }
+
+      // If first attempt failed, try recreating interpreter with different options
+      if (testResult == null || testResult.isEmpty) {
+        _logService.log('TfliteEmbeddingHandler', 'Trying with different interpreter options...');
+        _interpreter?.close();
+
+        // Try with fewer threads
+        final retryOptions = InterpreterOptions()..threads = 2;
+        try {
+          _interpreter = await Interpreter.fromFile(File(modelPath), options: retryOptions);
+          _logService.log('TfliteEmbeddingHandler', 'Retry: Interpreter created with threads=2');
+          testResult = await embed('test');
+        } catch (e) {
+          _logService.log('TfliteEmbeddingHandler', 'Retry with threads=2 failed: $e');
+        }
+      }
+
+      // If still failing, try without any delegate
+      if (testResult == null || testResult.isEmpty) {
+        _logService.log('TfliteEmbeddingHandler', 'Trying with minimal options...');
+        _interpreter?.close();
+        try {
+          final minimalOptions = InterpreterOptions();
+          // Force CPU only by setting no delegate
+          _interpreter = await Interpreter.fromFile(File(modelPath), options: minimalOptions);
+          _logService.log('TfliteEmbeddingHandler', 'Retry: Interpreter created with minimal options');
+          testResult = await embed('test');
+        } catch (e) {
+          _logService.log('TfliteEmbeddingHandler', 'Retry with minimal options failed: $e');
+        }
+      }
+
       if (testResult != null && testResult.isNotEmpty) {
         _embeddingDimension = testResult.length;
         _isInitialized = true;
@@ -113,7 +152,9 @@ class TfliteEmbeddingHandler {
         _logService.log('TfliteEmbeddingHandler', '=== Init OK. Dim: $_embeddingDimension ===');
         return true;
       } else {
-        _logService.log('TfliteEmbeddingHandler', 'ERROR: Test embedding failed');
+        _logService.log('TfliteEmbeddingHandler', 'ERROR: Test embedding failed with all configurations');
+        _logService.log('TfliteEmbeddingHandler', 'HINT: This model may require float32 format. '
+            'Try converting the model or using a float32 version.');
         return false;
       }
     } catch (e, stackTrace) {
@@ -325,7 +366,23 @@ class TfliteEmbeddingHandler {
           _padToBatch(attentionMask),
           _padToBatch(tokenTypeIds),
         ];
-        _interpreter!.runForMultipleInputs(inputs, {0: outputBuffer});
+
+        try {
+          _interpreter!.runForMultipleInputs(inputs, {0: outputBuffer});
+        } catch (e) {
+          _logService.log('TfliteEmbeddingHandler', 'runForMultipleInputs failed, trying alternative approach: $e');
+
+          // Alternative: Try running with single input array flattened
+          // Some models work better with this approach
+          try {
+            final singleInput = _padToBatch(inputIds);
+            _interpreter!.run(singleInput, outputBuffer);
+            _logService.log('TfliteEmbeddingHandler', 'Alternative run succeeded');
+          } catch (e2) {
+            _logService.log('TfliteEmbeddingHandler', 'Alternative run also failed: $e2');
+            rethrow;
+          }
+        }
       } else {
         _interpreter!.run(_padToBatch(inputIds), outputBuffer);
       }

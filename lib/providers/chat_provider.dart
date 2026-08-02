@@ -37,6 +37,11 @@ class ChatProvider extends ChangeNotifier {
   bool _modelsLoaded = false;
   bool _usedRag = false;
 
+  // RAG search progress state
+  bool _isRagSearching = false;
+  double _ragProgress = 0.0;
+  String _ragStatus = '';
+
   ChatProvider({
     required LiteRTService litertService,
     required StorageService storageService,
@@ -56,6 +61,9 @@ class ChatProvider extends ChangeNotifier {
   bool get isGenerating => _isGenerating;
   bool get canStop => _isGenerating;
   bool get usedRag => _usedRag;
+  bool get isRagSearching => _isRagSearching;
+  double get ragProgress => _ragProgress;
+  String get ragStatus => _ragStatus;
   RagProvider? get ragProvider => _ragProvider;
   ToolProvider? get toolProvider => _toolProvider;
 
@@ -346,6 +354,19 @@ class ChatProvider extends ChangeNotifier {
           final topK = _cacheService.ragTopK;
           _logService.log('ChatProvider', 'RAG search: topK=$topK');
 
+          // Show RAG progress
+          _isRagSearching = true;
+          _ragProgress = 0.1;
+          _ragStatus = 'Searching documents...';
+          notifyListeners();
+
+          // Small delay to show the progress bar
+          await Future.delayed(const Duration(milliseconds: 100));
+
+          _ragProgress = 0.3;
+          _ragStatus = 'Embedding query...';
+          notifyListeners();
+
           final results = await _ragProvider!.search(
             query: userContent,
             topK: topK,
@@ -353,7 +374,23 @@ class ChatProvider extends ChangeNotifier {
 
           _logService.log('ChatProvider', 'RAG search returned ${results.length} results');
 
+          _ragProgress = 0.7;
+          _ragStatus = 'Found ${results.length} relevant chunks';
+          notifyListeners();
+
+          await Future.delayed(const Duration(milliseconds: 200));
+
           if (results.isNotEmpty) {
+            // Show context preview
+            final firstChunkPreview = results.first.text.length > 50
+                ? results.first.text.substring(0, 50) + '...'
+                : results.first.text;
+            _ragStatus = 'Using: "$firstChunkPreview"';
+            _ragProgress = 0.9;
+            notifyListeners();
+
+            await Future.delayed(const Duration(milliseconds: 300));
+
             promptToSend = _ragProvider!.buildRagPrompt(
               userContent,
               results,
@@ -363,8 +400,17 @@ class ChatProvider extends ChangeNotifier {
             _usedRag = true;
             _logService.log('ChatProvider', 'RAG prompt built: ${promptToSend.length} chars');
           } else {
+            _ragStatus = 'No matches found';
+            _ragProgress = 1.0;
+            notifyListeners();
             _logService.log('ChatProvider', 'No RAG results, using original query');
           }
+
+          // Clear RAG progress
+          _isRagSearching = false;
+          _ragProgress = 0.0;
+          _ragStatus = '';
+          notifyListeners();
         } else {
           _logService.log('ChatProvider', 'RAG prerequisites not met, skipping');
         }
@@ -495,6 +541,9 @@ class ChatProvider extends ChangeNotifier {
       await _storageService.saveChatSession(_currentSession!);
     } finally {
       _isGenerating = false;
+      _isRagSearching = false;
+      _ragProgress = 0.0;
+      _ragStatus = '';
       _buffer.clear();
       notifyListeners();
     }
@@ -517,6 +566,9 @@ class ChatProvider extends ChangeNotifier {
       await _storageService.saveChatSession(_currentSession!);
     }
     _isGenerating = false;
+    _isRagSearching = false;
+    _ragProgress = 0.0;
+    _ragStatus = '';
     _buffer.clear();
     _logService.log('ChatProvider', 'Generation stopped');
     notifyListeners();
