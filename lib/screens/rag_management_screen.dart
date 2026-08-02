@@ -864,6 +864,34 @@ class _RagSettingsTab extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            _buildSectionHeader('RAG MODE'),
+            const SizedBox(height: 8),
+            _buildSettingTile(
+              icon: Icons.swap_horiz_rounded,
+              title: 'Mode',
+              subtitle: cache.ragMode == 'pre_generation'
+                  ? 'Pre-generation'
+                  : 'Post-generation',
+              child: DropdownButton<String>(
+                value: cache.ragMode,
+                dropdownColor: AppColors.surface,
+                style: AppColors.font(color: AppColors.textPrimary),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'pre_generation',
+                    child: Text('Pre-generation'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'post_generation',
+                    child: Text('Post-generation'),
+                  ),
+                ],
+                onChanged: (v) {
+                  if (v != null) cache.ragMode = v;
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
             _buildSectionHeader('CHUNKING'),
             const SizedBox(height: 8),
             _buildSettingTile(

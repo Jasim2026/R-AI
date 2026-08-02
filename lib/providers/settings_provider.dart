@@ -15,6 +15,9 @@ class SettingsProvider extends ChangeNotifier {
   bool get streamingEnabled => _cacheService.streamingEnabled;
   bool get ragEnabled => _cacheService.ragEnabled;
   int get ragTopK => _cacheService.ragTopK;
+  String get ragMode => _cacheService.ragMode;
+  bool get toolCallingEnabled => _cacheService.toolCallingEnabled;
+  String get uncertaintyKeywords => _cacheService.uncertaintyKeywords;
 
   void setCachePrompts(bool value) {
     _cacheService.cachePrompts = value;
@@ -53,6 +56,21 @@ class SettingsProvider extends ChangeNotifier {
 
   void setRagTopK(int value) {
     _cacheService.ragTopK = value;
+    notifyListeners();
+  }
+
+  void setRagMode(String value) {
+    _cacheService.ragMode = value;
+    notifyListeners();
+  }
+
+  void setToolCallingEnabled(bool value) {
+    _cacheService.toolCallingEnabled = value;
+    notifyListeners();
+  }
+
+  void setUncertaintyKeywords(String value) {
+    _cacheService.uncertaintyKeywords = value;
     notifyListeners();
   }
 

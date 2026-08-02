@@ -3,11 +3,14 @@ import 'package:provider/provider.dart';
 import 'services/litert_service.dart';
 import 'services/storage_service.dart';
 import 'services/cache_service.dart';
+import 'services/ram_monitor_service.dart';
 import 'providers/chat_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/model_provider.dart';
 import 'providers/rag_provider.dart';
 import 'providers/embedding_model_provider.dart';
+import 'providers/tool_provider.dart';
+import 'providers/session_provider.dart';
 import 'screens/chat_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/model_import_screen.dart';
@@ -43,6 +46,7 @@ class _RAIAppState extends State<RAIApp> {
             storageService: context.read<StorageService>(),
             cacheService: context.read<CacheService>(),
             ragProvider: context.read<RagProvider>(),
+            toolProvider: context.read<ToolProvider>(),
           ),
         ),
       ],

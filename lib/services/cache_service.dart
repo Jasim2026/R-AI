@@ -75,6 +75,21 @@ class CacheService {
   int get chunkOverlap => _prefs.getInt('chunk_overlap') ?? 50;
   set chunkOverlap(int value) => _prefs.setInt('chunk_overlap', value);
 
+  String get ragMode => _prefs.getString('rag_mode') ?? 'pre_generation';
+  set ragMode(String value) => _prefs.setString('rag_mode', value);
+
+  bool get toolCallingEnabled => _prefs.getBool('tool_calling_enabled') ?? false;
+  set toolCallingEnabled(bool value) => _prefs.setBool('tool_calling_enabled', value);
+
+  String? get toolsJson => _prefs.getString('tools_json');
+  Future<void> setToolsJson(String value) => _prefs.setString('tools_json', value);
+
+  String get uncertaintyKeywords =>
+      _prefs.getString('uncertainty_keywords') ??
+      'I am not sure,I don\'t know,I cannot confirm,uncertain,not certain,unable to determine';
+  set uncertaintyKeywords(String value) =>
+      _prefs.setString('uncertainty_keywords', value);
+
   String _cacheKey(String modelId, String prompt, double temp, double topP, int maxTok) {
     return 'prompt_cache_${modelId}_${temp}_${topP}_${maxTok}_${prompt.hashCode}';
   }

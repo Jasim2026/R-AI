@@ -6,6 +6,7 @@ import '../widgets/gradient_background.dart';
 import '../utils/theme.dart';
 import '../utils/constants.dart';
 import 'rag_management_screen.dart';
+import 'tool_management_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -161,6 +162,54 @@ class SettingsScreen extends StatelessWidget {
                           context,
                           MaterialPageRoute(
                             builder: (_) => const RagManagementScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    SettingTile(
+                      icon: Icons.swap_horiz_rounded,
+                      iconColor: AppColors.warning,
+                      title: 'RAG Mode',
+                      subtitle: settings.ragMode == 'pre_generation'
+                          ? 'Pre-generation (embed before LLM)'
+                          : 'Post-generation (LLM checks uncertainty)',
+                      trailing: Icon(
+                        Icons.chevron_right,
+                        color: AppColors.textHint,
+                        size: 20,
+                      ),
+                      onTap: () => _editRagMode(context, settings),
+                    ),
+                    if (settings.ragMode == 'post_generation')
+                      SettingTile(
+                        icon: Icons.help_outline_rounded,
+                        iconColor: AppColors.accent,
+                        title: 'Uncertainty Keywords',
+                        subtitle: settings.uncertaintyKeywords.length > 40
+                            ? '${settings.uncertaintyKeywords.substring(0, 40)}...'
+                            : settings.uncertaintyKeywords,
+                        onTap: () => _editUncertaintyKeywords(context, settings),
+                      ),
+                  ],
+                ),
+                _buildSection(
+                  'Tool Calling',
+                  [
+                    SettingTile(
+                      icon: Icons.build_circle_rounded,
+                      iconColor: AppColors.warning,
+                      title: 'Tool Calling',
+                      subtitle: 'Detect and execute tools from responses',
+                      trailing: Icon(
+                        Icons.chevron_right,
+                        color: AppColors.textHint,
+                        size: 20,
+                      ),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ToolManagementScreen(),
                           ),
                         );
                       },
@@ -377,6 +426,204 @@ class SettingsScreen extends StatelessWidget {
             }),
           ],
         ),
+      ),
+    );
+  }
+
+  void _editRagMode(BuildContext context, SettingsProvider settings) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(bottom: 20),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.textHint.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Text(
+              'RAG Mode',
+              style: AppColors.font(
+                color: AppColors.textPrimary,
+                size: 18,
+                weight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Pre-generation: Embed query before LLM (faster, always uses RAG)\n'
+              'Post-generation: LLM answers first, uses RAG only if uncertain',
+              style: AppColors.font(
+                color: AppColors.textHint,
+                size: 12,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 20),
+            _buildRagModeOption(
+              context,
+              settings,
+              'pre_generation',
+              'Pre-generation',
+              Icons.search_rounded,
+              'Embed before LLM generates',
+            ),
+            const SizedBox(height: 8),
+            _buildRagModeOption(
+              context,
+              settings,
+              'post_generation',
+              'Post-generation',
+              Icons.refresh_rounded,
+              'LLM generates first, RAG on uncertainty',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRagModeOption(
+    BuildContext context,
+    SettingsProvider settings,
+    String value,
+    String title,
+    IconData icon,
+    String subtitle,
+  ) {
+    final isSelected = settings.ragMode == value;
+    return Material(
+      color: isSelected
+          ? AppColors.primary.withOpacity(0.1)
+          : AppColors.surfaceLight,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          settings.setRagMode(value);
+          Navigator.pop(context);
+        },
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected
+                  ? AppColors.primary.withOpacity(0.3)
+                  : AppColors.divider,
+              width: 0.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? AppColors.primary.withOpacity(0.15)
+                      : AppColors.surfaceLight,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  icon,
+                  color: isSelected ? AppColors.primary : AppColors.textHint,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: AppColors.font(
+                        color: isSelected
+                            ? AppColors.primary
+                            : AppColors.textPrimary,
+                        size: 14,
+                        weight: FontWeight.w500,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: AppColors.font(
+                        color: AppColors.textHint,
+                        size: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isSelected)
+                Icon(Icons.check_circle, color: AppColors.primary, size: 18),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _editUncertaintyKeywords(BuildContext context, SettingsProvider settings) {
+    final controller = TextEditingController(text: settings.uncertaintyKeywords);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text(
+          'Uncertainty Keywords',
+          style: AppColors.font(color: AppColors.textPrimary, weight: FontWeight.w600),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Comma-separated keywords that indicate the model is uncertain. '
+              'When these appear in a response, RAG will be triggered to re-generate.',
+              style: AppColors.font(color: AppColors.textHint, size: 12),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              maxLines: 3,
+              style: AppColors.font(color: AppColors.textPrimary),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: AppColors.surfaceLight,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: AppColors.font(color: AppColors.textHint)),
+          ),
+          TextButton(
+            onPressed: () {
+              settings.setUncertaintyKeywords(controller.text.trim());
+              Navigator.pop(ctx);
+            },
+            child: Text('Save', style: AppColors.font(color: AppColors.primary)),
+          ),
+        ],
       ),
     );
   }

@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/chat_provider.dart';
 import '../providers/model_provider.dart';
+import '../providers/session_provider.dart';
+import '../services/ram_monitor_service.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/chat_input.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/gradient_background.dart';
+import '../widgets/ram_usage_indicator.dart';
 import '../utils/theme.dart';
+import '../screens/session_manager_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -56,6 +60,7 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: _buildAppBar(),
+        drawer: _buildSessionDrawer(),
         body: Column(
           children: [
             Expanded(
@@ -123,8 +128,17 @@ class _ChatScreenState extends State<ChatScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
             children: [
+              Builder(
+                builder: (ctx) => IconButton(
+                  icon: const Icon(Icons.menu_rounded, size: 22),
+                  color: AppColors.textSecondary,
+                  onPressed: () => Scaffold.of(ctx).openDrawer(),
+                ),
+              ),
               _buildModelStatus(),
               const Spacer(),
+              _buildRamIndicator(),
+              const SizedBox(width: 4),
               _buildAppBarActions(),
             ],
           ),
@@ -192,6 +206,11 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildRamIndicator() {
+    final monitor = context.read<RamMonitorService>();
+    return RamUsageIndicator(monitor: monitor);
+  }
+
   Widget _buildAppBarActions() {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -222,6 +241,217 @@ class _ChatScreenState extends State<ChatScreen> {
           alignment: Alignment.center,
           child: Icon(icon, color: AppColors.textSecondary, size: 20),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSessionDrawer() {
+    return Drawer(
+      backgroundColor: AppColors.surfaceDark,
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+              child: Text(
+                'Sessions',
+                style: AppColors.font(
+                  size: 22,
+                  weight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const Divider(color: AppColors.divider, height: 1),
+            Expanded(
+              child: Consumer<ChatProvider>(
+                builder: (context, chatProvider, _) {
+                  final sessions = chatProvider.sessions;
+
+                  if (sessions.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.forum_outlined, color: AppColors.textHint, size: 40),
+                          const SizedBox(height: 12),
+                          Text(
+                            'No sessions yet',
+                            style: AppColors.font(color: AppColors.textHint, size: 14),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: sessions.length,
+                    itemBuilder: (context, index) {
+                      final session = sessions[index];
+                      final isActive = chatProvider.currentSession?.id == session.id;
+
+                      return Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isActive
+                              ? AppColors.primary.withOpacity(0.1)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                          leading: Icon(
+                            isActive
+                                ? Icons.chat_bubble_rounded
+                                : Icons.chat_bubble_outline_rounded,
+                            size: 18,
+                            color: isActive ? AppColors.primary : AppColors.textHint,
+                          ),
+                          title: Text(
+                            session.title ?? 'Untitled',
+                            style: AppColors.font(
+                              size: 13,
+                              weight: isActive ? FontWeight.w600 : FontWeight.w400,
+                              color: isActive ? AppColors.primary : AppColors.textPrimary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            '${session.messages.length} msgs',
+                            style: AppColors.font(size: 10, color: AppColors.textHint),
+                          ),
+                          trailing: PopupMenuButton<String>(
+                            icon: Icon(
+                              Icons.more_vert,
+                              size: 14,
+                              color: AppColors.textHint.withOpacity(0.6),
+                            ),
+                            color: AppColors.surfaceLight,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            onSelected: (value) async {
+                              switch (value) {
+                                case 'open':
+                                  await chatProvider.selectSession(session.id);
+                                  break;
+                                case 'rename':
+                                  _showRenameDialog(session);
+                                  break;
+                                case 'delete':
+                                  await chatProvider.deleteSession(session.id);
+                                  break;
+                              }
+                            },
+                            itemBuilder: (ctx) => [
+                              PopupMenuItem(value: 'open', child: Text('Open', style: AppColors.font(size: 12))),
+                              PopupMenuItem(value: 'rename', child: Text('Rename', style: AppColors.font(size: 12))),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Text('Delete', style: AppColors.font(size: 12, color: AppColors.error)),
+                              ),
+                            ],
+                          ),
+                          onTap: () async {
+                            await chatProvider.selectSession(session.id);
+                            if (context.mounted) Navigator.pop(context);
+                          },
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            const Divider(color: AppColors.divider, height: 1),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: SizedBox(
+                width: double.infinity,
+                child: Material(
+                  color: AppColors.primary.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const SessionManagerScreen(),
+                        ),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.manage_search_rounded, size: 18, color: AppColors.primary),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Manage Sessions',
+                            style: AppColors.font(
+                              size: 13,
+                              weight: FontWeight.w600,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showRenameDialog(dynamic session) {
+    final controller = TextEditingController(text: session.title ?? '');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text(
+          'Rename',
+          style: AppColors.font(color: AppColors.textPrimary, weight: FontWeight.w600),
+        ),
+        content: TextField(
+          controller: controller,
+          style: AppColors.font(color: AppColors.textPrimary),
+          autofocus: true,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: AppColors.surfaceLight,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: AppColors.font(color: AppColors.textHint)),
+          ),
+          TextButton(
+            onPressed: () async {
+              final newTitle = controller.text.trim();
+              if (newTitle.isNotEmpty) {
+                await context.read<ChatProvider>().deleteSession(session.id);
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: Text('Save', style: AppColors.font(color: AppColors.primary)),
+          ),
+        ],
       ),
     );
   }

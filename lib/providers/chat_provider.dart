@@ -2,10 +2,13 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/chat_session.dart';
 import '../models/message.dart';
+import '../models/tool_definition.dart';
 import '../services/litert_service.dart';
 import '../services/cache_service.dart';
 import '../services/storage_service.dart';
+import '../services/tool_service.dart';
 import '../providers/rag_provider.dart';
+import '../providers/tool_provider.dart';
 
 enum InferenceBlockReason {
   none,
@@ -19,6 +22,7 @@ class ChatProvider extends ChangeNotifier {
   final StorageService _storageService;
   final CacheService _cacheService;
   final RagProvider? _ragProvider;
+  final ToolProvider? _toolProvider;
 
   ChatSession? _currentSession;
   List<ChatSession> _sessions = [];
@@ -29,22 +33,27 @@ class ChatProvider extends ChangeNotifier {
   Timer? _saveTimer;
   bool _sessionsLoaded = false;
   bool _modelsLoaded = false;
+  bool _usedRag = false;
 
   ChatProvider({
     required LiteRTService litertService,
     required StorageService storageService,
     required CacheService cacheService,
     RagProvider? ragProvider,
+    ToolProvider? toolProvider,
   })  : _litertService = litertService,
         _storageService = storageService,
         _cacheService = cacheService,
-        _ragProvider = ragProvider;
+        _ragProvider = ragProvider,
+        _toolProvider = toolProvider;
 
   ChatSession? get currentSession => _currentSession;
   List<ChatSession> get sessions => _sessions;
   bool get isGenerating => _isGenerating;
   bool get canStop => _isGenerating;
+  bool get usedRag => _usedRag;
   RagProvider? get ragProvider => _ragProvider;
+  ToolProvider? get toolProvider => _toolProvider;
 
   InferenceBlockReason checkInferencePrerequisites() {
     final ragEnabled = _cacheService.ragEnabled;
@@ -185,10 +194,70 @@ class ChatProvider extends ChangeNotifier {
     });
   }
 
+  bool _isUncertainResponse(String response) {
+    final keywords = _cacheService.uncertaintyKeywords
+        .split(',')
+        .map((k) => k.trim().toLowerCase())
+        .where((k) => k.isNotEmpty)
+        .toList();
+
+    final lower = response.toLowerCase();
+    for (final keyword in keywords) {
+      if (lower.contains(keyword)) return true;
+    }
+    return false;
+  }
+
+  Future<String> _generateOnce(String prompt, String systemInstruction) async {
+    if (_cacheService.streamingEnabled) {
+      final stream = _litertService.generateStream(
+        prompt: prompt,
+        systemInstruction: systemInstruction,
+        maxTokens: _cacheService.maxTokens,
+        temperature: _cacheService.temperature,
+        topP: _cacheService.topP,
+        cachePrompt: _cacheService.cachePrompts,
+      );
+
+      _buffer.clear();
+      await for (final token in stream) {
+        if (_isCancelled) break;
+        _buffer.write(token);
+
+        if (_currentSession!.messages.isNotEmpty &&
+            _currentSession!.messages.last.role == MessageRole.assistant &&
+            _currentSession!.messages.last.isStreaming) {
+          _currentSession!.messages.last = _currentSession!.messages.last
+              .copyWith(content: _buffer.toString());
+        } else {
+          final assistantMessage = Message(
+            content: _buffer.toString(),
+            role: MessageRole.assistant,
+            isStreaming: true,
+          );
+          _currentSession!.messages.add(assistantMessage);
+        }
+        _throttledNotify();
+      }
+      return _buffer.toString();
+    } else {
+      final response = await _litertService.generate(
+        prompt: prompt,
+        systemInstruction: systemInstruction,
+        maxTokens: _cacheService.maxTokens,
+        temperature: _cacheService.temperature,
+        topP: _cacheService.topP,
+        cachePrompt: _cacheService.cachePrompts,
+      );
+      return response;
+    }
+  }
+
   Future<void> _generateResponse() async {
     _isGenerating = true;
     _isCancelled = false;
     _buffer.clear();
+    _usedRag = false;
     notifyListeners();
 
     try {
@@ -196,97 +265,124 @@ class ChatProvider extends ChangeNotifier {
           .where((m) => m.role == MessageRole.user)
           .lastOrNull;
       final userContent = lastUserMsg?.content ?? '';
+      final ragMode = _cacheService.ragMode;
+      final ragEnabled = _cacheService.ragEnabled;
 
       String promptToSend = userContent;
-      bool usedRag = false;
+      String systemInstruction = _cacheService.systemPrompt;
 
-      if (_cacheService.ragEnabled &&
-          _ragProvider != null &&
-          _ragProvider!.isLoaded &&
-          _ragProvider!.hasDbs) {
-        final topK = _cacheService.ragTopK;
-        final results = await _ragProvider!.search(
-          query: userContent,
-          topK: topK,
-        );
-
-        if (results.isNotEmpty) {
-          promptToSend = _ragProvider!.buildRagPrompt(
-            userContent,
-            results,
-            _cacheService.systemPrompt,
+      if (ragMode == 'pre_generation' && ragEnabled) {
+        // Pre-generation RAG: embed query BEFORE generation
+        if (_ragProvider != null && _ragProvider!.isLoaded && _ragProvider!.hasDbs) {
+          final topK = _cacheService.ragTopK;
+          final results = await _ragProvider!.search(
+            query: userContent,
+            topK: topK,
           );
-          usedRag = true;
-        }
-      }
 
-      if (_cacheService.streamingEnabled) {
-        final stream = _litertService.generateStream(
-          prompt: promptToSend,
-          systemInstruction: usedRag ? '' : _cacheService.systemPrompt,
-          maxTokens: _cacheService.maxTokens,
-          temperature: _cacheService.temperature,
-          topP: _cacheService.topP,
-          cachePrompt: _cacheService.cachePrompts,
-        );
-
-        await for (final token in stream) {
-          if (_isCancelled) break;
-          _buffer.write(token);
-
-          if (_currentSession!.messages.isNotEmpty &&
-              _currentSession!.messages.last.role ==
-                  MessageRole.assistant &&
-              _currentSession!.messages.last.isStreaming) {
-            _currentSession!.messages.last = _currentSession!.messages.last
-                .copyWith(content: _buffer.toString());
-          } else {
-            final assistantMessage = Message(
-              content: _buffer.toString(),
-              role: MessageRole.assistant,
-              isStreaming: true,
+          if (results.isNotEmpty) {
+            promptToSend = _ragProvider!.buildRagPrompt(
+              userContent,
+              results,
+              _cacheService.systemPrompt,
             );
-            _currentSession!.messages.add(assistantMessage);
+            systemInstruction = '';
+            _usedRag = true;
           }
-          _throttledNotify();
         }
-      } else {
-        final response = await _litertService.generate(
-          prompt: promptToSend,
-          systemInstruction: usedRag ? '' : _cacheService.systemPrompt,
-          maxTokens: _cacheService.maxTokens,
-          temperature: _cacheService.temperature,
-          topP: _cacheService.topP,
-          cachePrompt: _cacheService.cachePrompts,
-        );
-        _buffer.write(response);
       }
+
+      // Generate response
+      final finalResponse = await _generateOnce(promptToSend, systemInstruction);
 
       if (!_isCancelled) {
-        final finalResponse = _buffer.toString();
-        if (_currentSession!.messages.isNotEmpty &&
-            _currentSession!.messages.last.role == MessageRole.assistant) {
-          _currentSession!.messages.last = _currentSession!.messages.last
-              .copyWith(content: finalResponse, isStreaming: false);
-        } else {
-          final assistantMessage = Message(
-            content: finalResponse,
-            role: MessageRole.assistant,
-          );
-          _currentSession!.addMessage(assistantMessage);
+        // Post-generation RAG: check uncertainty AFTER generation
+        if (ragMode == 'post_generation' && ragEnabled && !_usedRag) {
+          if (_isUncertainResponse(finalResponse) &&
+              _ragProvider != null &&
+              _ragProvider!.isLoaded &&
+              _ragProvider!.hasDbs) {
+            // Model is uncertain — re-generate with RAG context
+            _usedRag = true;
+            final topK = _cacheService.ragTopK;
+            final results = await _ragProvider!.search(
+              query: userContent,
+              topK: topK,
+            );
+
+            if (results.isNotEmpty) {
+              final ragPrompt = _ragProvider!.buildRagPrompt(
+                userContent,
+                results,
+                _cacheService.systemPrompt,
+              );
+
+              // Replace streaming message with fresh generation
+              if (_currentSession!.messages.isNotEmpty &&
+                  _currentSession!.messages.last.role == MessageRole.assistant) {
+                _currentSession!.messages.last =
+                    _currentSession!.messages.last.copyWith(
+                  content: '',
+                  isStreaming: true,
+                );
+              }
+
+              _buffer.clear();
+              final ragResponse = await _generateOnce(ragPrompt, '');
+
+              if (!_isCancelled && _currentSession!.messages.isNotEmpty) {
+                _currentSession!.messages.last = _currentSession!.messages.last
+                    .copyWith(content: ragResponse, isStreaming: false);
+              }
+            }
+          }
         }
 
-        if (_cacheService.cachePrompts &&
-            _litertService.currentModel != null) {
+        // Finalize message
+        if (_currentSession!.messages.isNotEmpty &&
+            _currentSession!.messages.last.role == MessageRole.assistant) {
+          final content = _currentSession!.messages.last.content;
+          _currentSession!.messages.last = _currentSession!.messages.last
+              .copyWith(content: content, isStreaming: false);
+        }
+
+        // Tool calling: detect tool calls in response
+        if (_toolProvider != null && _toolProvider!.toolCallingEnabled) {
+          final responseText = _currentSession!.messages.isNotEmpty
+              ? _currentSession!.messages.last.content
+              : '';
+
+          final toolCall = _toolProvider!.detectToolCall(responseText);
+          if (toolCall != null) {
+            final toolResult = await _toolProvider!.executeTool(toolCall);
+
+            // Add tool call info as a system-like message
+            final toolMsg = Message(
+              content: '🔧 **Tool Called:** ${toolCall.tool.name}\n'
+                  'Detection: ${toolCall.tool.detectionType.name} — "${toolCall.detectedText}"\n'
+                  '${toolResult.success ? "✅ Success" : "❌ Failed: ${toolResult.error}"}',
+              role: MessageRole.assistant,
+            );
+            _currentSession!.addMessage(toolMsg);
+          }
+        }
+
+        // Cache the response
+        if (_cacheService.cachePrompts && _litertService.currentModel != null) {
           final lastUserMsg = _currentSession!.messages
               .where((m) => m.role == MessageRole.user)
               .lastOrNull;
-          if (lastUserMsg != null) {
-            await _cacheService.savePromptCache(
-              _litertService.currentModel!.id,
-              lastUserMsg.content,
-              finalResponse,
-            );
+          if (lastUserMsg != null && _currentSession!.messages.isNotEmpty) {
+            final lastAssistant = _currentSession!.messages
+                .where((m) => m.role == MessageRole.assistant && !m.isStreaming)
+                .lastOrNull;
+            if (lastAssistant != null) {
+              await _cacheService.savePromptCache(
+                _litertService.currentModel!.id,
+                lastUserMsg.content,
+                lastAssistant.content,
+              );
+            }
           }
         }
       }
