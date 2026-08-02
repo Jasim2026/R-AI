@@ -1,12 +1,10 @@
 package com.example.r_ai
 
 import android.content.Context
+import android.os.ParcelFileDescriptor
 import com.google.mediapipe.tasks.text.textembedder.TextEmbedder
 import com.google.mediapipe.tasks.text.textembedder.TextEmbedderResult
 import java.io.File
-import java.io.FileInputStream
-import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
 
 class EmbeddingHandler(private val context: Context) {
     private var textEmbedder: TextEmbedder? = null
@@ -31,26 +29,31 @@ class EmbeddingHandler(private val context: Context) {
                 currentModelPath = sourceFile.absolutePath
             }
 
-            val modelBuffer = FileInputStream(targetFile).channel.use { channel ->
-                channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size())
+            val descriptor = ParcelFileDescriptor.open(
+                targetFile,
+                ParcelFileDescriptor.MODE_READ_ONLY
+            )
+
+            try {
+                val options = TextEmbedder.TextEmbedderOptions.builder()
+                    .setBaseOptions(
+                        com.google.mediapipe.tasks.core.BaseOptions.builder()
+                            .setModelAssetFileDescriptor(descriptor.fd)
+                            .build()
+                    )
+                    .build()
+
+                textEmbedder = TextEmbedder.createFromOptions(context, options)
+
+                val testResult = textEmbedder!!.embed("test")
+                val floats = testResult.embeddingResult().embeddings()[0].floatEmbedding()
+                embeddingDimension = floats.size
+
+                isInitialized = true
+                true
+            } finally {
+                descriptor.close()
             }
-
-            val options = TextEmbedder.TextEmbedderOptions.builder()
-                .setBaseOptions(
-                    com.google.mediapipe.tasks.core.BaseOptions.builder()
-                        .setModelAssetBuffer(modelBuffer)
-                        .build()
-                )
-                .build()
-
-            textEmbedder = TextEmbedder.createFromOptions(context, options)
-
-            val testResult = textEmbedder!!.embed("test")
-            val floats = testResult.embeddingResult().embeddings()[0].floatEmbedding()
-            embeddingDimension = floats.size
-
-            isInitialized = true
-            true
         } catch (e: Exception) {
             e.printStackTrace()
             isInitialized = false
