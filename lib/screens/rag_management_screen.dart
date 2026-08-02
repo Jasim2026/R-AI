@@ -7,7 +7,6 @@ import '../providers/rag_provider.dart';
 import '../models/embedding_model.dart';
 import '../models/vector_db.dart';
 import '../services/cache_service.dart';
-import '../services/text_chunker.dart';
 import '../widgets/gradient_background.dart';
 import '../utils/theme.dart';
 import 'vector_db_detail_screen.dart';
@@ -836,6 +835,7 @@ class _ProcessingDialog extends StatefulWidget {
 class _ProcessingDialogState extends State<_ProcessingDialog> {
   int _current = 0;
   int _total = 0;
+  String _currentChunk = '';
   bool _done = false;
   String? _error;
 
@@ -850,14 +850,6 @@ class _ProcessingDialogState extends State<_ProcessingDialog> {
       final file = File(widget.filePath);
       final text = await file.readAsString();
 
-      // First, chunk to get total
-      final chunker = TextChunker(
-        chunkSize: widget.chunkSize,
-        overlap: widget.chunkOverlap,
-      );
-      final chunks = chunker.chunk(text);
-      _total = chunks.length;
-
       // Create db
       String dbPath;
       final existing = widget.provider.dbs.where(
@@ -871,17 +863,18 @@ class _ProcessingDialogState extends State<_ProcessingDialog> {
         dbPath = db.filePath;
       }
 
-      // Process with progress
+      // Process with progress — one chunk at a time
       await widget.provider.processText(
         dbPath: dbPath,
         text: text,
         chunkSize: widget.chunkSize,
         chunkOverlap: widget.chunkOverlap,
-        onProgress: (current, total) {
+        onProgress: (current, total, chunkPreview) {
           if (mounted) {
             setState(() {
               _current = current;
               _total = total;
+              _currentChunk = chunkPreview;
             });
           }
         },
@@ -930,14 +923,46 @@ class _ProcessingDialogState extends State<_ProcessingDialog> {
             const CircularProgressIndicator(color: AppColors.primary),
             const SizedBox(height: 16),
             Text(
-              'Processing chunks... $_current/$_total',
-              style: AppColors.font(color: AppColors.textPrimary),
+              'Processing chunk $_current/$_total',
+              style: AppColors.font(
+                color: AppColors.textPrimary,
+                size: 14,
+                weight: FontWeight.w600,
+              ),
             ),
+            if (_currentChunk.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceLight,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _currentChunk,
+                  style: AppColors.font(
+                    size: 11,
+                    color: AppColors.textHint,
+                    height: 1.4,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
             LinearProgressIndicator(
               value: _total > 0 ? _current / _total : 0,
               backgroundColor: AppColors.surfaceLight,
               color: AppColors.primary,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${(_total > 0 ? (_current / _total * 100) : 0).toStringAsFixed(0)}%',
+              style: AppColors.font(
+                size: 11,
+                color: AppColors.textHint,
+              ),
             ),
           ],
         ],

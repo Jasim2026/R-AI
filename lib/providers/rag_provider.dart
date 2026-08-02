@@ -85,7 +85,7 @@ class RagProvider extends ChangeNotifier {
     String source = '',
     int chunkSize = 500,
     int chunkOverlap = 50,
-    void Function(int current, int total)? onProgress,
+    void Function(int current, int total, String chunkPreview)? onProgress,
   }) async {
     _logService.log('RagProvider', 'Processing text for DB: $dbPath');
     _logService.log('RagProvider', 'Text length: ${text.length} chars | source: ${source.isEmpty ? "(none)" : source}');
@@ -105,36 +105,41 @@ class RagProvider extends ChangeNotifier {
       return;
     }
 
-    // Log first few chunks for debugging
-    for (var i = 0; i < chunks.length && i < 3; i++) {
-      final preview = chunks[i].length > 80 ? '${chunks[i].substring(0, 80)}...' : chunks[i];
-      _logService.log('RagProvider', '  Chunk[$i]: $preview');
-    }
-
-    // Embed in batches of 32
-    const batchSize = 32;
     var totalEmbedded = 0;
-    for (var i = 0; i < chunks.length; i += batchSize) {
-      final end = (i + batchSize > chunks.length) ? chunks.length : i + batchSize;
-      final batch = chunks.sublist(i, end);
-      _logService.log('RagProvider', 'Embedding batch ${i ~/ batchSize + 1}: chunks [$i..${end - 1}] (${batch.length} chunks)');
+
+    // Process ONE chunk at a time: embed → store → clear → progress → repeat
+    for (var i = 0; i < chunks.length; i++) {
+      final chunk = chunks[i];
+      final preview = chunk.length > 60 ? '${chunk.substring(0, 60)}...' : chunk;
+      _logService.log('RagProvider', 'Processing chunk [$i/${chunks.length}]: $preview');
 
       try {
-        final vectors = await _embeddingProvider.embedBatch(batch);
-        _logService.log('RagProvider', 'Embedded ${vectors.length} chunks, vectors dim: ${vectors.isNotEmpty ? vectors.first.length : 0}');
+        // 1. Embed single chunk
+        final vector = await _embeddingProvider.embed(chunk);
+        _logService.log('RagProvider', '  Embedded: dim=${vector.length}');
 
-        await VectorDbService.addChunks(dbPath, batch, vectors);
-        totalEmbedded += batch.length;
-        _logService.log('RagProvider', 'Stored ${batch.length} chunks in DB. Total embedded: $totalEmbedded/${chunks.length}');
+        // 2. Store immediately to DB
+        await VectorDbService.addChunks(dbPath, [chunk], [vector]);
+        totalEmbedded++;
+        _logService.log('RagProvider', '  Stored in DB. Total: $totalEmbedded/${chunks.length}');
 
-        onProgress?.call(end, chunks.length);
+        // 3. Clear intermediate data — let GC reclaim the vector memory
+        final _ = vector;
+
+        // 4. Progress callback with chunk preview
+        onProgress?.call(totalEmbedded, chunks.length, preview);
+
+        // 5. Refresh DB list so UI shows updated chunk count immediately
+        _dbs = await VectorDbService.listDbs();
+        notifyListeners();
       } catch (e, stackTrace) {
-        _logService.logError('RagProvider', 'Failed to embed/store batch starting at index $i', e, stackTrace);
-        rethrow;
+        _logService.logError('RagProvider', 'Failed to process chunk $i', e, stackTrace);
+        // Continue with remaining chunks instead of failing entirely
+        _logService.log('RagProvider', 'Skipping chunk $i, continuing...');
       }
     }
 
-    _logService.log('RagProvider', 'Text processing complete. Total chunks embedded: $totalEmbedded');
+    _logService.log('RagProvider', 'Text processing complete. Embedded: $totalEmbedded/${chunks.length}');
     _dbs = await VectorDbService.listDbs();
     notifyListeners();
   }
@@ -234,24 +239,31 @@ class RagProvider extends ChangeNotifier {
       throw Exception('Embedding model not loaded');
     }
 
-    const batchSize = 32;
-    for (var i = 0; i < texts.length; i += batchSize) {
-      final end = (i + batchSize > texts.length) ? texts.length : i + batchSize;
-      final batch = texts.sublist(i, end);
-      _logService.log('RagProvider', 'Embedding batch ${i ~/ batchSize + 1}: ${batch.length} texts');
+    var totalAdded = 0;
+    for (var i = 0; i < texts.length; i++) {
+      final text = texts[i];
+      _logService.log('RagProvider', 'Processing text [$i/${texts.length}]');
 
       try {
-        final vectors = await _embeddingProvider.embedBatch(batch);
-        await VectorDbService.addChunks(dbPath, batch, vectors);
-        _logService.log('RagProvider', 'Stored batch in DB');
+        // 1. Embed single text
+        final vector = await _embeddingProvider.embed(text);
+
+        // 2. Store immediately
+        await VectorDbService.addChunks(dbPath, [text], [vector]);
+        totalAdded++;
+        _logService.log('RagProvider', '  Stored. Total: $totalAdded/${texts.length}');
+
+        // 3. Clear + refresh
+        _dbs = await VectorDbService.listDbs();
+        notifyListeners();
       } catch (e, stackTrace) {
-        _logService.logError('RagProvider', 'Failed to embed/store batch', e, stackTrace);
-        rethrow;
+        _logService.logError('RagProvider', 'Failed to process text $i', e, stackTrace);
+        _logService.log('RagProvider', 'Skipping text $i, continuing...');
       }
     }
 
+    _logService.log('RagProvider', 'All texts added: $totalAdded/${texts.length}');
     _dbs = await VectorDbService.listDbs();
-    _logService.log('RagProvider', 'All texts added. Total databases: ${_dbs.length}');
     notifyListeners();
   }
 
