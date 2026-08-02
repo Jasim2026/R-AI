@@ -4,6 +4,9 @@ import android.content.Context
 import com.google.mediapipe.tasks.text.textembedder.TextEmbedder
 import com.google.mediapipe.tasks.text.textembedder.TextEmbedderResult
 import java.io.File
+import java.io.FileInputStream
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 
 class EmbeddingHandler(private val context: Context) {
     private var textEmbedder: TextEmbedder? = null
@@ -28,10 +31,14 @@ class EmbeddingHandler(private val context: Context) {
                 currentModelPath = sourceFile.absolutePath
             }
 
+            val modelBuffer = FileInputStream(targetFile).channel.use { channel ->
+                channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size())
+            }
+
             val options = TextEmbedder.TextEmbedderOptions.builder()
                 .setBaseOptions(
                     com.google.mediapipe.tasks.core.BaseOptions.builder()
-                        .setModelPath(targetFile.absolutePath)
+                        .setModelAssetBuffer(modelBuffer)
                         .build()
                 )
                 .build()
