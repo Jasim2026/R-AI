@@ -100,6 +100,10 @@ class TfliteEmbeddingHandler {
 
       // Run test embedding
       _logService.log('TfliteEmbeddingHandler', 'Running test embedding...');
+      _logService.log('TfliteEmbeddingHandler', 'Vocab size: ${_vocab?.length ?? 0}');
+      _logService.log('TfliteEmbeddingHandler', 'Max length: $_maxLength, Has 3 inputs: $_hasThreeInputs');
+      _logService.log('TfliteEmbeddingHandler', 'Embedding dim: $_embeddingDimension');
+
       final testResult = await embed('test');
       if (testResult != null && testResult.isNotEmpty) {
         _logService.log('TfliteEmbeddingHandler', 'Test embedding successful. Actual dimension: ${testResult.length}');
@@ -108,7 +112,7 @@ class TfliteEmbeddingHandler {
         _currentModelPath = modelPath;
         return true;
       } else {
-        _logService.log('TfliteEmbeddingHandler', 'ERROR: Test embedding failed');
+        _logService.log('TfliteEmbeddingHandler', 'ERROR: Test embedding failed - result was ${testResult == null ? "null" : "empty (length ${testResult.length})"}');
         return false;
       }
     } catch (e, stackTrace) {
@@ -206,18 +210,29 @@ class TfliteEmbeddingHandler {
 
       _logService.log('TfliteEmbeddingHandler', 'Tokens length: ${inputIds.length}');
 
-      final output = List.filled(_embeddingDimension, 0).reshape([1, _embeddingDimension]);
+      final output = List<List<double>>.generate(
+        1,
+        (_) => List<double>.filled(_embeddingDimension, 0.0),
+      );
 
       _logService.log('TfliteEmbeddingHandler', 'Running inference...');
-      if (_hasThreeInputs) {
-        final inputs = [
-          [inputIds],
-          [attentionMask],
-          [tokenTypeIds],
-        ];
-        _interpreter!.runForMultipleInputs(inputs, {0: output});
-      } else {
-        _interpreter!.run([inputIds], output);
+      try {
+        if (_hasThreeInputs) {
+          final inputs = [
+            [inputIds],
+            [attentionMask],
+            [tokenTypeIds],
+          ];
+          _logService.log('TfliteEmbeddingHandler', 'Input shapes: ${inputs.map((e) => (e as List).length > 0 ? (e[0] as List).length : 0).toList()}');
+          _logService.log('TfliteEmbeddingHandler', 'Output shape: [${output.length}, ${output[0].length}]');
+          _interpreter!.runForMultipleInputs(inputs, {0: output});
+        } else {
+          _interpreter!.run([inputIds], output);
+        }
+        _logService.log('TfliteEmbeddingHandler', 'Inference completed');
+      } catch (e, st) {
+        _logService.logError('TfliteEmbeddingHandler', 'Inference FAILED', e, st);
+        return null;
       }
 
       // Get embedding and L2 normalize

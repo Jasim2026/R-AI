@@ -10,6 +10,8 @@ class LogService {
   late final File _logFile;
 
   bool _initialized = false;
+  final List<Future<void> Function()> _queue = [];
+  bool _processing = false;
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -20,6 +22,8 @@ class LogService {
         await dir.create(recursive: true);
       }
       _logFile = File('$_logDirPath/$_logFileName');
+      // Clear old log on startup
+      await _logFile.writeAsString('');
       _initialized = true;
     } catch (e) {
       print('Failed to initialize LogService: $e');
@@ -36,25 +40,48 @@ class LogService {
     if (!_initialized) await initialize();
     if (!_initialized) return;
 
-    try {
-      final timestamp = _formatTimestamp();
-      final buffer = StringBuffer();
-      buffer.writeln('[$timestamp] $tag: $message');
-      if (error != null) {
-        buffer.writeln('  ERROR: $error');
-      }
-      if (stackTrace != null) {
-        buffer.writeln('  STACK: $stackTrace');
-      }
-
-      await _logFile.writeAsString(buffer.toString(), mode: FileMode.append);
-    } catch (e) {
-      print('Failed to write log: $e');
+    final timestamp = _formatTimestamp();
+    final buffer = StringBuffer();
+    buffer.writeln('[$timestamp] $tag: $message');
+    if (error != null) {
+      buffer.writeln('  ERROR: $error');
     }
+    if (stackTrace != null) {
+      buffer.writeln('  STACK: $stackTrace');
+    }
+
+    await _enqueueWrite(buffer.toString());
   }
 
   Future<void> logError(String tag, String message, dynamic error, StackTrace? stackTrace) async {
     await log(tag, message, error: error.toString(), stackTrace: stackTrace);
+  }
+
+  Future<void> _enqueueWrite(String text) async {
+    _queue.add(() async {
+      try {
+        await _logFile.writeAsString('$text', mode: FileMode.append);
+      } catch (e) {
+        print('Failed to write log: $e');
+      }
+    });
+    _processQueue();
+  }
+
+  Future<void> _processQueue() async {
+    if (_processing) return;
+    _processing = true;
+
+    while (_queue.isNotEmpty) {
+      final task = _queue.removeAt(0);
+      try {
+        await task();
+      } catch (e) {
+        print('Log queue error: $e');
+      }
+    }
+
+    _processing = false;
   }
 
   Future<void> clear() async {
