@@ -23,3 +23,8 @@
 -dontwarn com.google.android.play.core.splitcompat.SplitCompatApplication
 -dontwarn com.google.android.play.core.splitinstall.**
 -dontwarn com.google.android.play.core.tasks.**
+
+# Ignore missing javax.annotation.processing classes (compile-time only, from auto-value)
+-dontwarn javax.annotation.processing.**
+-dontwarn javax.lang.model.**
+-dontwarn autovalue.shaded.com.squareup.javapoet$.**
