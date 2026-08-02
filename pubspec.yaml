@@ -19,7 +19,7 @@ dependencies:
   markdown: ^7.3.0
   sqflite: ^2.3.0
   web_socket_channel: ^2.4.0
-  tflite_flutter: ^0.12.1
+  ffi: ^2.1.0
   archive: ^4.0.9
 
 dev_dependencies:

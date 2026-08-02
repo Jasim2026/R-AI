@@ -9,6 +9,7 @@ class TfliteEmbeddingHandler {
   bool _isInitialized = false;
   int _embeddingDimension = 0;
   int _maxLength = 128;
+  int _modelBatchSize = 1;
   String? _currentModelPath;
   bool _hasThreeInputs = false;
   Map<String, int>? _vocab;
@@ -62,7 +63,6 @@ class TfliteEmbeddingHandler {
       }
       _logService.log('TfliteEmbeddingHandler', 'Loaded vocab: ${_vocab!.length} entries');
 
-      // Log some special tokens
       final clsToken = _vocab!['[CLS]'];
       final sepToken = _vocab!['[SEP]'];
       final unkToken = _vocab!['[UNK]'];
@@ -83,34 +83,25 @@ class TfliteEmbeddingHandler {
         _logService.log('TfliteEmbeddingHandler', '  Input: ${tensor.name} shape=${tensor.shape} type=${tensor.type}');
       }
 
-      // Check if model has a batch size > 1 and resize inputs to batch 1
+      // Detect model batch size from first input tensor
       if (inputTensors.isNotEmpty) {
         final firstShape = inputTensors.first.shape;
-        if (firstShape.length >= 2 && firstShape[0] > 1) {
-          _logService.log('TfliteEmbeddingHandler', 'Model batch size ${firstShape[0]} > 1, resizing inputs to batch 1...');
-          for (var i = 0; i < inputTensors.length; i++) {
-            final tensor = inputTensors[i];
-            final newShape = [1] + tensor.shape.sublist(1);
-            _logService.log('TfliteEmbeddingHandler', '  Resizing ${tensor.name}: ${tensor.shape} -> $newShape');
-            _interpreter!.resizeInputTensor(i, newShape);
-          }
-          _logService.log('TfliteEmbeddingHandler', 'Calling allocateTensors() after resize...');
-          _interpreter!.allocateTensors();
-          _logService.log('TfliteEmbeddingHandler', 'Tensors reallocated for batch size 1');
+        _modelBatchSize = firstShape.length >= 2 ? firstShape[0] : 1;
+        _logService.log('TfliteEmbeddingHandler', 'Model batch size detected: $_modelBatchSize');
+      }
+
+      _hasThreeInputs = inputTensors.length == 3;
+      _logService.log('TfliteEmbeddingHandler', 'Model has ${inputTensors.length} inputs (3-input: $_hasThreeInputs)');
+
+      if (inputTensors.isNotEmpty) {
+        final inputShape = inputTensors.first.shape;
+        if (inputShape.length >= 2) {
+          _maxLength = inputShape[1];
         }
       }
 
-      // Re-read tensors after potential resize
-      final inputTensorsAfter = _interpreter!.getInputTensors();
-      final outputTensorsAfter = _interpreter!.getOutputTensors();
-
-      _logService.log('TfliteEmbeddingHandler', 'Input tensors (after resize): ${inputTensorsAfter.length}');
-      for (var tensor in inputTensorsAfter) {
-        _logService.log('TfliteEmbeddingHandler', '  Input: ${tensor.name} shape=${tensor.shape} type=${tensor.type}');
-      }
-
-      _logService.log('TfliteEmbeddingHandler', 'Output tensors: ${outputTensorsAfter.length}');
-      for (var tensor in outputTensorsAfter) {
+      _logService.log('TfliteEmbeddingHandler', 'Output tensors: ${outputTensors.length}');
+      for (var tensor in outputTensors) {
         _logService.log('TfliteEmbeddingHandler', '  Output: ${tensor.name} shape=${tensor.shape} type=${tensor.type} scale=${tensor.params.scale} zeroPoint=${tensor.params.zeroPoint}');
         _outputType = tensor.type;
         _outputScale = tensor.params.scale;
@@ -121,23 +112,12 @@ class TfliteEmbeddingHandler {
         }
       }
 
-      _hasThreeInputs = inputTensorsAfter.length == 3;
-      _logService.log('TfliteEmbeddingHandler', 'Model has ${inputTensorsAfter.length} inputs (3-input: $_hasThreeInputs)');
-
-      if (inputTensorsAfter.isNotEmpty) {
-        final inputShape = inputTensorsAfter.first.shape;
-        if (inputShape.length >= 2) {
-          _maxLength = inputShape[1];
-        }
-      }
-
       if (_embeddingDimension == 0) {
         _embeddingDimension = 384;
         _logService.log('TfliteEmbeddingHandler', 'Warning: Could not determine embedding dimension, defaulting to 384');
       }
 
-      _logService.log('TfliteEmbeddingHandler', 'Output type: $_outputType, dim: $_embeddingDimension, maxLen: $_maxLength');
-      _logService.log('TfliteEmbeddingHandler', 'Output shape: $_outputShape');
+      _logService.log('TfliteEmbeddingHandler', 'Output type: $_outputType, dim: $_embeddingDimension, maxLen: $_maxLength, modelBatch: $_modelBatchSize');
 
       _logService.log('TfliteEmbeddingHandler', 'Running test embedding...');
       final testResult = await embed('test');
@@ -179,10 +159,8 @@ class TfliteEmbeddingHandler {
   }
 
   List<List<int>> tokenize(String text) {
-    _logService.log('TfliteEmbeddingHandler', 'Tokenizing: "${text.length > 50 ? text.substring(0, 50) + "..." : text}"');
     final tokens = <int>[];
     final words = text.toLowerCase().split(RegExp(r'\s+'));
-    _logService.log('TfliteEmbeddingHandler', 'Words: ${words.length} -> ${words.take(5).join(", ")}${words.length > 5 ? "..." : ""}');
 
     tokens.add(_vocab!['[CLS]'] ?? 101);
 
@@ -229,23 +207,26 @@ class TfliteEmbeddingHandler {
       tokens.insert(tokens.length - 1, 0);
     }
 
-    _logService.log('TfliteEmbeddingHandler', 'Tokens: ${tokens.length} tokens, first 10: ${tokens.take(10).join(", ")}');
-    _logService.log('TfliteEmbeddingHandler', 'Attention mask: ${attentionMask.where((e) => e == 1).length} ones out of ${attentionMask.length}');
-
     return [tokens, attentionMask, tokenTypeIds];
   }
 
+  /// Pad a single input row to match the model's batch size by duplicating it.
+  List<List<int>> _padToBatch(List<int> singleRow) {
+    if (_modelBatchSize <= 1) return [singleRow];
+    return List<List<int>>.generate(_modelBatchSize, (_) => List<int>.from(singleRow));
+  }
+
+  /// Extract the first row (batch index 0) from the output buffer.
   Object _createOutputBuffer() {
-    _logService.log('TfliteEmbeddingHandler', 'Creating output buffer: type=$_outputType, dim=$_embeddingDimension');
     switch (_outputType) {
       case TensorType.float32:
         return List<List<double>>.generate(
-          1,
+          _modelBatchSize,
           (_) => List<double>.filled(_embeddingDimension, 0.0),
         );
       case TensorType.float64:
         return List<List<double>>.generate(
-          1,
+          _modelBatchSize,
           (_) => List<double>.filled(_embeddingDimension, 0.0),
         );
       case TensorType.int8:
@@ -258,25 +239,23 @@ class TfliteEmbeddingHandler {
       case TensorType.uint32:
       case TensorType.uint64:
         return List<List<int>>.generate(
-          1,
+          _modelBatchSize,
           (_) => List<int>.filled(_embeddingDimension, 0),
         );
       case TensorType.float16:
         return List<List<int>>.generate(
-          1,
+          _modelBatchSize,
           (_) => List<int>.filled(_embeddingDimension, 0),
         );
       default:
-        _logService.log('TfliteEmbeddingHandler', 'WARNING: Unknown output type $_outputType, defaulting to float32 buffer');
         return List<List<double>>.generate(
-          1,
+          _modelBatchSize,
           (_) => List<double>.filled(_embeddingDimension, 0.0),
         );
     }
   }
 
   Float32List _extractEmbedding(Object outputBuffer) {
-    _logService.log('TfliteEmbeddingHandler', 'Extracting embedding from output buffer (type=$_outputType)');
     final embedding = Float32List(_embeddingDimension);
 
     switch (_outputType) {
@@ -367,7 +346,6 @@ class TfliteEmbeddingHandler {
         }
     }
 
-    _logService.log('TfliteEmbeddingHandler', 'Embedding extracted: first 5 values: ${embedding.take(5).map((e) => e.toStringAsFixed(4)).join(", ")}');
     return embedding;
   }
 
@@ -402,30 +380,24 @@ class TfliteEmbeddingHandler {
     }
 
     try {
-      _logService.log('TfliteEmbeddingHandler', 'Embedding: "${text.length > 50 ? text.substring(0, 50) + "..." : text}"');
       final tokenized = tokenize(text);
       final inputIds = tokenized[0];
       final attentionMask = tokenized[1];
       final tokenTypeIds = tokenized[2];
 
-      _logService.log('TfliteEmbeddingHandler', 'Input IDs (first 10): ${inputIds.take(10).join(", ")}');
-      _logService.log('TfliteEmbeddingHandler', 'Attention mask (first 10): ${attentionMask.take(10).join(", ")}');
-
       final outputBuffer = _createOutputBuffer();
 
       if (_hasThreeInputs) {
         final inputs = [
-          [inputIds],
-          [attentionMask],
-          [tokenTypeIds],
+          _padToBatch(inputIds),
+          _padToBatch(attentionMask),
+          _padToBatch(tokenTypeIds),
         ];
-        _logService.log('TfliteEmbeddingHandler', 'Running with 3 inputs, shapes: [1,${inputIds.length}], [1,${attentionMask.length}], [1,${tokenTypeIds.length}]');
         _interpreter!.runForMultipleInputs(inputs, {0: outputBuffer});
       } else {
-        _logService.log('TfliteEmbeddingHandler', 'Running with 1 input, shape: [1,${inputIds.length}]');
-        _interpreter!.run([inputIds], outputBuffer);
+        final inputs = _padToBatch(inputIds);
+        _interpreter!.run(inputs, outputBuffer);
       }
-      _logService.log('TfliteEmbeddingHandler', 'Inference completed');
 
       final embedding = _extractEmbedding(outputBuffer);
 
@@ -434,7 +406,6 @@ class TfliteEmbeddingHandler {
         norm += embedding[i] * embedding[i];
       }
       norm = sqrt(norm);
-      _logService.log('TfliteEmbeddingHandler', 'L2 norm before normalization: ${norm.toStringAsFixed(6)}');
 
       if (norm > 0) {
         for (var i = 0; i < _embeddingDimension; i++) {
@@ -442,7 +413,6 @@ class TfliteEmbeddingHandler {
         }
       }
 
-      _logService.log('TfliteEmbeddingHandler', 'Embedding complete: dim=${embedding.length}, first 5: ${embedding.take(5).map((e) => e.toStringAsFixed(4)).join(", ")}');
       return embedding;
     } catch (e, stackTrace) {
       _logService.logError('TfliteEmbeddingHandler', 'Error during embedding', e, stackTrace);
@@ -451,30 +421,25 @@ class TfliteEmbeddingHandler {
   }
 
   Future<List<Float32List?>> embedBatch(List<String> texts) async {
-    _logService.log('TfliteEmbeddingHandler', 'Embedding batch: ${texts.length} texts');
     final results = <Float32List?>[];
-    for (var i = 0; i < texts.length; i++) {
-      _logService.log('TfliteEmbeddingHandler', 'Batch item ${i + 1}/${texts.length}');
-      results.add(await embed(texts[i]));
+    for (var text in texts) {
+      results.add(await embed(text));
     }
-    final successCount = results.where((r) => r != null).length;
-    _logService.log('TfliteEmbeddingHandler', 'Batch complete: $successCount/${texts.length} successful');
     return results;
   }
 
   Future<void> close() async {
-    _logService.log('TfliteEmbeddingHandler', 'Closing handler...');
     _interpreter?.close();
     _interpreter = null;
     _isInitialized = false;
     _embeddingDimension = 0;
+    _modelBatchSize = 1;
     _currentModelPath = null;
     _hasThreeInputs = false;
     _vocab = null;
     _outputType = TensorType.float32;
     _outputScale = 1.0;
     _outputZeroPoint = 0;
-    _logService.log('TfliteEmbeddingHandler', 'Handler closed');
   }
 
   bool isReady() => _isInitialized;
