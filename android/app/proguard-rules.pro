@@ -12,6 +12,10 @@
 -keep class com.google.mediapipe.** { *; }
 -dontwarn com.google.mediapipe.**
 
+# Keep Protobuf classes (required by MediaPipe)
+-keep class com.google.protobuf.** { *; }
+-dontwarn com.google.protobuf.**
+
 # Ignore missing Play Core classes
 -dontwarn com.google.android.play.core.splitcompat.SplitCompatApplication
 -dontwarn com.google.android.play.core.splitinstall.**

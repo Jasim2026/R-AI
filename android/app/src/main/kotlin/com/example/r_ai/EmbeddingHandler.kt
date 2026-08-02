@@ -1,12 +1,13 @@
 package com.example.r_ai
 
 import android.content.Context
-import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.google.mediapipe.tasks.text.textembedder.TextEmbedder
 import com.google.mediapipe.tasks.text.textembedder.TextEmbedderResult
 import java.io.File
 import java.io.FileOutputStream
+import java.io.FileInputStream
+import java.nio.channels.FileChannel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -16,7 +17,6 @@ class EmbeddingHandler(private val context: Context) {
     private var isInitialized = false
     private var embeddingDimension = 0
     private var currentModelPath: String? = null
-    private var currentDescriptor: ParcelFileDescriptor? = null
 
     companion object {
         private const val TAG = "EmbeddingHandler"
@@ -69,16 +69,15 @@ class EmbeddingHandler(private val context: Context) {
                 log("Model copied successfully. Target size: ${targetFile.length()}")
             }
 
-            log("Opening ParcelFileDescriptor...")
-            val descriptor = ParcelFileDescriptor.open(
-                targetFile,
-                ParcelFileDescriptor.MODE_READ_ONLY
-            )
-            currentDescriptor = descriptor
+            log("Opening file channel for memory-mapped read...")
+            val modelBuffer = FileInputStream(targetFile).channel.use { channel ->
+                channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size())
+            }
+            log("Model buffer mapped. Capacity: ${modelBuffer.capacity()}")
 
-            log("Creating TextEmbedder options with fd: ${descriptor.fd}")
+            log("Creating TextEmbedder options with model buffer...")
             val baseOptions = com.google.mediapipe.tasks.core.BaseOptions.builder()
-                .setModelAssetFileDescriptor(descriptor.fd)
+                .setModelAssetBuffer(modelBuffer)
                 .build()
 
             val options = TextEmbedder.TextEmbedderOptions.builder()
@@ -129,8 +128,6 @@ class EmbeddingHandler(private val context: Context) {
     fun close() {
         textEmbedder?.close()
         textEmbedder = null
-        currentDescriptor?.close()
-        currentDescriptor = null
         isInitialized = false
         embeddingDimension = 0
     }
