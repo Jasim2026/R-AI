@@ -62,7 +62,7 @@ dependencies {
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0"
 
     // MediaPipe Text Embedding (supports any .tflite/.litertlm embedding model)
-    implementation "com.google.mediapipe:tasks-text:0.10.14" {
+    implementation("com.google.mediapipe:tasks-text:0.10.14") {
         exclude group: 'com.google.protobuf'
     }
 
