@@ -35,7 +35,6 @@ import java.util.Locale
 class MainActivity : FlutterActivity() {
     private val METHOD_CHANNEL = "com.rai/litert"
     private val EVENT_CHANNEL = "com.rai/litert_stream"
-    private val EMBEDDING_CHANNEL = "com.rai/embedding"
     private val PERMISSION_CHANNEL = "com.rai/permissions"
 
     private var engine: Engine? = null
@@ -44,7 +43,6 @@ class MainActivity : FlutterActivity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private var eventSink: EventChannel.EventSink? = null
-    private var embeddingHandler: EmbeddingHandler? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
 
     companion object {
@@ -136,40 +134,6 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, EMBEDDING_CHANNEL).setMethodCallHandler { call, result ->
-            when (call.method) {
-                "initEmbedding" -> {
-                    val args = call.arguments as? Map<*, *>
-                    if (args == null) {
-                        result.error("INVALID_ARGS", "Arguments must be a Map", null)
-                        return@setMethodCallHandler
-                    }
-                    handleInitEmbedding(args, result)
-                }
-                "embed" -> {
-                    val args = call.arguments as? Map<*, *>
-                    if (args == null) {
-                        result.error("INVALID_ARGS", "Arguments must be a Map", null)
-                        return@setMethodCallHandler
-                    }
-                    handleEmbed(args, result)
-                }
-                "embedBatch" -> {
-                    val args = call.arguments as? Map<*, *>
-                    if (args == null) {
-                        result.error("INVALID_ARGS", "Arguments must be a Map", null)
-                        return@setMethodCallHandler
-                    }
-                    handleEmbedBatch(args, result)
-                }
-                "closeEmbedding" -> handleCloseEmbedding(result)
-                "getEmbeddingDimension" -> {
-                    result.success(embeddingHandler?.getEmbeddingDimension() ?: 0)
-                }
-                else -> result.notImplemented()
-            }
-        }
-
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
@@ -208,7 +172,6 @@ class MainActivity : FlutterActivity() {
                     }
                     startActivityForResult(intent, MANAGE_STORAGE_REQUEST)
                 } catch (e: Exception) {
-                    // If the specific intent fails, try the general settings
                     try {
                         val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION).apply {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -240,90 +203,6 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun handleInitialize(result: MethodChannel.Result) {
-        result.success(true)
-    }
-
-    private fun handleInitEmbedding(args: Map<*, *>, result: MethodChannel.Result) {
-        val modelPath = args["modelPath"] as String
-        log("handleInitEmbedding called with modelPath: $modelPath")
-
-        scope.launch(Dispatchers.IO) {
-            try {
-                val handler = EmbeddingHandler(applicationContext)
-                log("Calling handler.initialize()...")
-                val success = handler.initialize(modelPath)
-                log("handler.initialize() returned: $success")
-
-                if (success) {
-                    embeddingHandler = handler
-                }
-                withContext(Dispatchers.Main) {
-                    result.success(success)
-                }
-            } catch (e: Exception) {
-                val errorMessage = e.cause?.message ?: e.message ?: "Unknown error"
-                log("ERROR in handleInitEmbedding: $errorMessage", e)
-                withContext(Dispatchers.Main) {
-                    result.error("EMBEDDING_INIT_FAILED", errorMessage, null)
-                }
-            }
-        }
-    }
-
-    private fun handleEmbed(args: Map<*, *>, result: MethodChannel.Result) {
-        val handler = embeddingHandler
-        if (handler == null) {
-            result.error("EMBEDDING_NOT_INIT", "Embedding model not loaded", null)
-            return
-        }
-
-        scope.launch(Dispatchers.Default) {
-            try {
-                val text = args["text"] as String
-                val embedding = handler.embed(text)
-                if (embedding != null) {
-                    withContext(Dispatchers.Main) {
-                        result.success(embedding.toList())
-                    }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        result.error("EMBED_FAILED", "Failed to embed text", null)
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    result.error("EMBED_FAILED", e.message, null)
-                }
-            }
-        }
-    }
-
-    private fun handleEmbedBatch(args: Map<*, *>, result: MethodChannel.Result) {
-        val handler = embeddingHandler
-        if (handler == null) {
-            result.error("EMBEDDING_NOT_INIT", "Embedding model not loaded", null)
-            return
-        }
-
-        scope.launch(Dispatchers.Default) {
-            try {
-                val texts = args["texts"] as List<String>
-                val embeddings = handler.embedBatch(texts)
-                val validEmbeddings = embeddings.filterNotNull().map { it.toList() }
-                withContext(Dispatchers.Main) {
-                    result.success(validEmbeddings)
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    result.error("EMBED_BATCH_FAILED", e.message, null)
-                }
-            }
-        }
-    }
-
-    private fun handleCloseEmbedding(result: MethodChannel.Result) {
-        embeddingHandler?.close()
-        embeddingHandler = null
         result.success(true)
     }
 
@@ -496,7 +375,6 @@ class MainActivity : FlutterActivity() {
         scope.cancel()
         conversation?.close()
         engine?.close()
-        embeddingHandler?.close()
         super.onDestroy()
     }
 }

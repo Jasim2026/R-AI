@@ -48,24 +48,10 @@ flutter {
     source "../.."
 }
 
-configurations.all {
-    exclude group: 'com.google.protobuf', module: 'protobuf-java'
-}
-
 dependencies {
     // Pin to 0.14.0 — built against kotlinx-coroutines 1.11.0, POM wrongly declares 1.9.0
     // See: https://github.com/google-ai-edge/LiteRT-LM/issues/2812
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.14.0") {
-        exclude group: 'com.google.protobuf'
-    }
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.14.0")
     // Must be 1.11.0+ to match the bytecode litertlm-android was compiled against
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0"
-
-    // MediaPipe Text Embedding (supports any .tflite/.litertlm embedding model)
-    implementation("com.google.mediapipe:tasks-text:0.10.14") {
-        exclude group: 'com.google.protobuf'
-    }
-
-    // Force protobuf-lite for compatibility
-    implementation 'com.google.protobuf:protobuf-javalite:4.28.2'
 }

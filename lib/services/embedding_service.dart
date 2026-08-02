@@ -1,16 +1,18 @@
 import 'package:flutter/services.dart';
 import '../services/log_service.dart';
+import '../services/tflite_embedding_handler.dart';
 
 class EmbeddingService {
-  static const MethodChannel _channel = MethodChannel('com.rai/embedding');
   final LogService _logService;
+  final TfliteEmbeddingHandler _handler;
 
   bool _isInitialized = false;
   int _embeddingDimension = 0;
   String? _currentModelPath;
 
   EmbeddingService({LogService? logService})
-      : _logService = logService ?? LogService();
+      : _logService = logService ?? LogService(),
+        _handler = TfliteEmbeddingHandler(logService: logService);
 
   bool get isInitialized => _isInitialized;
   int get embeddingDimension => _embeddingDimension;
@@ -25,23 +27,18 @@ class EmbeddingService {
         return true;
       }
 
-      final result = await _channel.invokeMethod('initEmbedding', {
-        'modelPath': modelPath,
-      });
-      _isInitialized = result as bool;
+      final success = await _handler.initialize(modelPath);
+      _logService.log('EmbeddingService', 'Handler initialized: $success');
 
-      _logService.log('EmbeddingService', 'initEmbedding returned: $_isInitialized');
+      _isInitialized = success;
 
-      if (_isInitialized) {
+      if (success) {
         _currentModelPath = modelPath;
-        _embeddingDimension = await getDimension();
+        _embeddingDimension = _handler.embeddingDimension;
         _logService.log('EmbeddingService', 'Embedding dimension: $_embeddingDimension');
       }
 
       return _isInitialized;
-    } on PlatformException catch (e) {
-      _logService.logError('EmbeddingService', 'PlatformException initializing embedding', e, null);
-      throw Exception('Failed to initialize embedding: ${e.message}');
     } catch (e, stackTrace) {
       _logService.logError('EmbeddingService', 'Exception initializing embedding', e, stackTrace);
       throw Exception('Failed to initialize embedding: $e');
@@ -50,15 +47,7 @@ class EmbeddingService {
 
   Future<int> getDimension() async {
     if (!_isInitialized) return 0;
-
-    try {
-      final result = await _channel.invokeMethod('getEmbeddingDimension');
-      _embeddingDimension = result as int;
-      return _embeddingDimension;
-    } on PlatformException catch (e) {
-      _logService.logError('EmbeddingService', 'Failed to get dimension', e, null);
-      throw Exception('Failed to get embedding dimension: ${e.message}');
-    }
+    return _embeddingDimension;
   }
 
   Future<List<double>> embed(String text) async {
@@ -67,13 +56,14 @@ class EmbeddingService {
     }
 
     try {
-      final result = await _channel.invokeMethod('embed', {
-        'text': text,
-      });
-      return List<double>.from(result);
-    } on PlatformException catch (e) {
-      _logService.logError('EmbeddingService', 'Failed to embed text', e, null);
-      throw Exception('Failed to embed text: ${e.message}');
+      final result = await _handler.embed(text);
+      if (result == null) {
+        throw Exception('Embedding returned null');
+      }
+      return result.toList();
+    } catch (e, stackTrace) {
+      _logService.logError('EmbeddingService', 'Failed to embed text', e, stackTrace);
+      throw Exception('Failed to embed text: $e');
     }
   }
 
@@ -83,18 +73,19 @@ class EmbeddingService {
     }
 
     try {
-      final result = await _channel.invokeMethod('embedBatch', {
-        'texts': texts,
-      });
-      return (result as List).map((e) => List<double>.from(e)).toList();
-    } on PlatformException catch (e) {
-      _logService.logError('EmbeddingService', 'Failed to embed batch', e, null);
-      throw Exception('Failed to embed batch: ${e.message}');
+      final results = await _handler.embedBatch(texts);
+      return results
+          .where((r) => r != null)
+          .map((r) => r!.toList())
+          .toList();
+    } catch (e, stackTrace) {
+      _logService.logError('EmbeddingService', 'Failed to embed batch', e, stackTrace);
+      throw Exception('Failed to embed batch: $e');
     }
   }
 
   void dispose() {
-    _channel.invokeMethod('closeEmbedding');
+    _handler.close();
     _isInitialized = false;
     _embeddingDimension = 0;
     _currentModelPath = null;
