@@ -40,6 +40,12 @@ class CacheService {
   set streamingEnabled(bool value) =>
       _prefs.setBool('streaming_enabled', value);
 
+  bool get ragEnabled => _prefs.getBool('rag_enabled') ?? false;
+  set ragEnabled(bool value) => _prefs.setBool('rag_enabled', value);
+
+  int get ragTopK => _prefs.getInt('rag_top_k') ?? 5;
+  set ragTopK(int value) => _prefs.setInt('rag_top_k', value);
+
   String? get lastModelId => _prefs.getString('last_model_id');
   set lastModelId(String? value) {
     if (value != null) {

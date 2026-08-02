@@ -6,13 +6,30 @@ import 'services/cache_service.dart';
 import 'providers/chat_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/model_provider.dart';
+import 'providers/rag_provider.dart';
 import 'screens/chat_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/model_import_screen.dart';
+import 'screens/permission_screen.dart';
 import 'utils/theme.dart';
 
-class RAIApp extends StatelessWidget {
-  const RAIApp({super.key});
+class RAIApp extends StatefulWidget {
+  final bool hasPermission;
+
+  const RAIApp({super.key, required this.hasPermission});
+
+  @override
+  State<RAIApp> createState() => _RAIAppState();
+}
+
+class _RAIAppState extends State<RAIApp> {
+  late bool _hasPermission;
+
+  @override
+  void initState() {
+    super.initState();
+    _hasPermission = widget.hasPermission;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +52,7 @@ class RAIApp extends StatelessWidget {
             litertService: context.read<LiteRTService>(),
             storageService: context.read<StorageService>(),
             cacheService: context.read<CacheService>(),
+            ragProvider: context.read<RagProvider>(),
           ),
         ),
       ],
@@ -42,7 +60,11 @@ class RAIApp extends StatelessWidget {
         title: 'R-AI',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.darkTheme,
-        home: const MainShell(),
+        home: _hasPermission ? const MainShell() : PermissionScreen(
+          onPermissionGranted: () {
+            setState(() => _hasPermission = true);
+          },
+        ),
       ),
     );
   }

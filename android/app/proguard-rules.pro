@@ -10,6 +10,15 @@
 # Keep model classes for serialization
 -keep class com.example.r_ai.models.** { *; }
 
+# Keep ObjectBox classes
+-keep class io.objectbox.** { *; }
+-keep class com.example.r_ai.entity.** { *; }
+-dontwarn io.objectbox.**
+
+# Keep MediaPipe Text Embedding classes
+-keep class com.google.mediapipe.** { *; }
+-dontwarn com.google.mediapipe.**
+
 # Ignore missing Play Core classes (not needed for non-split APKs)
 -dontwarn com.google.android.play.core.splitcompat.SplitCompatApplication
 -dontwarn com.google.android.play.core.splitinstall.**

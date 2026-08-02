@@ -133,6 +133,33 @@ class SettingsScreen extends StatelessWidget {
                   ],
                 ),
                 _buildSection(
+                  'RAG Settings',
+                  [
+                    SettingTile(
+                      icon: Icons.search_rounded,
+                      iconColor: AppColors.accent,
+                      title: 'Enable RAG',
+                      subtitle: 'Retrieval-Augmented Generation',
+                      trailing: SettingToggle(
+                        value: settings.ragEnabled,
+                        onChanged: settings.setRagEnabled,
+                      ),
+                    ),
+                    SettingTile(
+                      icon: Icons.format_list_numbered_rounded,
+                      iconColor: AppColors.primary,
+                      title: 'RAG Top-K',
+                      subtitle: '${settings.ragTopK} results',
+                      trailing: const Icon(
+                        Icons.chevron_right,
+                        color: AppColors.textHint,
+                        size: 20,
+                      ),
+                      onTap: () => _editRagTopK(context, settings),
+                    ),
+                  ],
+                ),
+                _buildSection(
                   'Cache',
                   [
                     SettingTile(
@@ -340,6 +367,66 @@ class SettingsScreen extends StatelessWidget {
                     : null,
                 onTap: () {
                   settings.setMaxTokens(tokens);
+                  Navigator.pop(context);
+                },
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _editRagTopK(BuildContext context, SettingsProvider settings) {
+    final options = [3, 5, 10, 15, 20];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(bottom: 20),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.textHint.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const Text(
+              'RAG Top-K Results',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 20),
+            ...options.map((k) {
+              final isSelected = settings.ragTopK == k;
+              return ListTile(
+                title: Text(
+                  '$k',
+                  style: TextStyle(
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.textPrimary,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
+                trailing: isSelected
+                    ? const Icon(Icons.check, color: AppColors.primary)
+                    : null,
+                onTap: () {
+                  settings.setRagTopK(k);
                   Navigator.pop(context);
                 },
               );

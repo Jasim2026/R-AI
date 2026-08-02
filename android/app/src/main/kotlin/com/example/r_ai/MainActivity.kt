@@ -20,6 +20,7 @@ import kotlinx.coroutines.cancel
 class MainActivity : FlutterActivity() {
     private val METHOD_CHANNEL = "com.rai/litert"
     private val EVENT_CHANNEL = "com.rai/litert_stream"
+    private val EMBEDDING_CHANNEL = "com.rai/embedding"
 
     private var engine: Engine? = null
     private var conversation: Conversation? = null
@@ -27,6 +28,7 @@ class MainActivity : FlutterActivity() {
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
     private var eventSink: EventChannel.EventSink? = null
+    private var embeddingHandler: EmbeddingHandler? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -42,6 +44,16 @@ class MainActivity : FlutterActivity() {
                 "sendMessageAsync" -> handleSendMessageAsync(call.arguments as Map<*, *>, result)
                 "cancel" -> handleCancel(result)
                 "readModelMetadata" -> handleReadModelMetadata(call.arguments as Map<*, *>, result)
+                else -> result.notImplemented()
+            }
+        }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, EMBEDDING_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "initEmbedding" -> handleInitEmbedding(call.arguments as Map<*, *>, result)
+                "embed" -> handleEmbed(call.arguments as Map<*, *>, result)
+                "embedBatch" -> handleEmbedBatch(call.arguments as Map<*, *>, result)
+                "closeEmbedding" -> handleCloseEmbedding(result)
                 else -> result.notImplemented()
             }
         }
@@ -63,13 +75,89 @@ class MainActivity : FlutterActivity() {
         result.success(true)
     }
 
+    private fun handleInitEmbedding(args: Map<*, *>, result: MethodChannel.Result) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val modelPath = args["modelPath"] as String
+                val handler = EmbeddingHandler applicationContext
+                val success = handler.initialize(modelPath)
+                if (success) {
+                    embeddingHandler = handler
+                }
+                scope.launch(Dispatchers.Main) {
+                    result.success(success)
+                }
+            } catch (e: Exception) {
+                scope.launch(Dispatchers.Main) {
+                    result.error("EMBEDDING_INIT_FAILED", e.message, null)
+                }
+            }
+        }
+    }
+
+    private fun handleEmbed(args: Map<*, *>, result: MethodChannel.Result) {
+        val handler = embeddingHandler
+        if (handler == null) {
+            result.error("EMBEDDING_NOT_INIT", "Embedding model not loaded", null)
+            return
+        }
+
+        scope.launch(Dispatchers.Default) {
+            try {
+                val text = args["text"] as String
+                val embedding = handler.embed(text)
+                if (embedding != null) {
+                    scope.launch(Dispatchers.Main) {
+                        result.success(embedding.toList())
+                    }
+                } else {
+                    scope.launch(Dispatchers.Main) {
+                        result.error("EMBED_FAILED", "Failed to embed text", null)
+                    }
+                }
+            } catch (e: Exception) {
+                scope.launch(Dispatchers.Main) {
+                    result.error("EMBED_FAILED", e.message, null)
+                }
+            }
+        }
+    }
+
+    private fun handleEmbedBatch(args: Map<*, *>, result: MethodChannel.Result) {
+        val handler = embeddingHandler
+        if (handler == null) {
+            result.error("EMBEDDING_NOT_INIT", "Embedding model not loaded", null)
+            return
+        }
+
+        scope.launch(Dispatchers.Default) {
+            try {
+                val texts = args["texts"] as List<String>
+                val embeddings = handler.embedBatch(texts)
+                val validEmbeddings = embeddings.filterNotNull().map { it.toList() }
+                scope.launch(Dispatchers.Main) {
+                    result.success(validEmbeddings)
+                }
+            } catch (e: Exception) {
+                scope.launch(Dispatchers.Main) {
+                    result.error("EMBED_BATCH_FAILED", e.message, null)
+                }
+            }
+        }
+    }
+
+    private fun handleCloseEmbedding(result: MethodChannel.Result) {
+        embeddingHandler?.close()
+        embeddingHandler = null
+        result.success(true)
+    }
+
     private fun handleReadModelMetadata(args: Map<*, *>, result: MethodChannel.Result) {
         scope.launch(Dispatchers.IO) {
             try {
                 val modelPath = args["modelPath"] as String
                 val supportedBackends = mutableListOf<String>()
 
-                // Probe each backend sequentially, closing each engine before trying the next
                 for (pair in listOf(
                     "gpu" to Backend.GPU(),
                     "npu" to Backend.NPU(),
@@ -101,7 +189,6 @@ class MainActivity : FlutterActivity() {
     private fun handleLoadModel(args: Map<*, *>, result: MethodChannel.Result) {
         scope.launch(Dispatchers.IO) {
             try {
-                // Close any existing engine first
                 conversation?.close()
                 conversation = null
                 engine?.close()
@@ -186,11 +273,9 @@ class MainActivity : FlutterActivity() {
             return
         }
 
-        // Cancel any previous generation first
         generationJob?.cancel()
         generationJob = null
 
-        // Return success immediately, stream tokens via EventChannel
         result.success(true)
 
         generationJob = scope.launch(Dispatchers.Default) {
@@ -212,7 +297,6 @@ class MainActivity : FlutterActivity() {
                         }
                     }
 
-                // Signal completion
                 scope.launch(Dispatchers.Main) {
                     eventSink?.success(mapOf("done" to true))
                 }
@@ -235,6 +319,7 @@ class MainActivity : FlutterActivity() {
         scope.cancel()
         conversation?.close()
         engine?.close()
+        embeddingHandler?.close()
         super.onDestroy()
     }
 }

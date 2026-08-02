@@ -13,6 +13,8 @@ class SettingsProvider extends ChangeNotifier {
   double get topP => _cacheService.topP;
   int get maxTokens => _cacheService.maxTokens;
   bool get streamingEnabled => _cacheService.streamingEnabled;
+  bool get ragEnabled => _cacheService.ragEnabled;
+  int get ragTopK => _cacheService.ragTopK;
 
   Future<void> setCachePrompts(bool value) async {
     _cacheService.cachePrompts = value;
@@ -41,6 +43,16 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> setStreamingEnabled(bool value) async {
     _cacheService.streamingEnabled = value;
+    notifyListeners();
+  }
+
+  Future<void> setRagEnabled(bool value) async {
+    _cacheService.ragEnabled = value;
+    notifyListeners();
+  }
+
+  Future<void> setRagTopK(int value) async {
+    _cacheService.ragTopK = value;
     notifyListeners();
   }
 

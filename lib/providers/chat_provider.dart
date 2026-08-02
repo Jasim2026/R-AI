@@ -4,11 +4,14 @@ import '../models/message.dart';
 import '../services/litert_service.dart';
 import '../services/cache_service.dart';
 import '../services/storage_service.dart';
+import '../services/rag_service.dart';
+import '../providers/rag_provider.dart';
 
 class ChatProvider extends ChangeNotifier {
   final LiteRTService _litertService;
   final StorageService _storageService;
   final CacheService _cacheService;
+  final RagProvider? _ragProvider;
 
   ChatSession? _currentSession;
   List<ChatSession> _sessions = [];
@@ -20,9 +23,11 @@ class ChatProvider extends ChangeNotifier {
     required LiteRTService litertService,
     required StorageService storageService,
     required CacheService cacheService,
+    RagProvider? ragProvider,
   })  : _litertService = litertService,
         _storageService = storageService,
-        _cacheService = cacheService;
+        _cacheService = cacheService,
+        _ragProvider = ragProvider;
 
   ChatSession? get currentSession => _currentSession;
   List<ChatSession> get sessions => _sessions;
@@ -100,17 +105,30 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Get just the last user message content — the native Conversation
-      // handles chat history internally
       final lastUserMsg = _currentSession!.messages
           .where((m) => m.role == MessageRole.user)
           .lastOrNull;
       final userContent = lastUserMsg?.content ?? '';
 
+      // RAG retrieval if enabled
+      String promptToSend = userContent;
+      RagResult? ragResult;
+
+      if (_ragProvider != null && _ragProvider!.isEnabled && _ragProvider!.isInitialized) {
+        ragResult = await _ragProvider!.retrieve(userContent);
+        if (ragResult.hasResults) {
+          promptToSend = _ragProvider!.buildRagPrompt(
+            userContent,
+            ragResult,
+            _cacheService.systemPrompt,
+          );
+        }
+      }
+
       if (_cacheService.streamingEnabled) {
         final stream = _litertService.generateStream(
-          prompt: userContent,
-          systemInstruction: _cacheService.systemPrompt,
+          prompt: promptToSend,
+          systemInstruction: ragResult?.hasResults == true ? '' : _cacheService.systemPrompt,
           maxTokens: _cacheService.maxTokens,
           temperature: _cacheService.temperature,
           topP: _cacheService.topP,
@@ -139,8 +157,8 @@ class ChatProvider extends ChangeNotifier {
         }
       } else {
         _currentResponse = await _litertService.generate(
-          prompt: userContent,
-          systemInstruction: _cacheService.systemPrompt,
+          prompt: promptToSend,
+          systemInstruction: ragResult?.hasResults == true ? '' : _cacheService.systemPrompt,
           maxTokens: _cacheService.maxTokens,
           temperature: _cacheService.temperature,
           topP: _cacheService.topP,
