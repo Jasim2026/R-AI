@@ -18,7 +18,7 @@ class EmbeddingService {
   int get embeddingDimension => _embeddingDimension;
   String? get currentModelPath => _currentModelPath;
 
-  Future<bool> initialize(String modelPath) async {
+  Future<bool> initialize(String modelPath, {String? vocabPath}) async {
     try {
       _logService.log('EmbeddingService', 'Initializing with model: $modelPath');
 
@@ -27,7 +27,7 @@ class EmbeddingService {
         return true;
       }
 
-      final success = await _handler.initialize(modelPath);
+      final success = await _handler.initialize(modelPath, vocabPath: vocabPath);
       _logService.log('EmbeddingService', 'Handler initialized: $success');
 
       _isInitialized = success;
