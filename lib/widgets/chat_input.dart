@@ -91,134 +91,179 @@ class _ChatInputState extends State<ChatInput> {
     );
   }
 
+  String _statusIcon(GenerationStatus status) {
+    switch (status) {
+      case GenerationStatus.searchingDocuments:
+        return 'Searching documents';
+      case GenerationStatus.embeddingQuery:
+        return 'Embedding your question';
+      case GenerationStatus.foundContext:
+        return 'Found relevant context';
+      case GenerationStatus.buildingPrompt:
+        return 'Building context prompt';
+      case GenerationStatus.generatingResponse:
+        return 'Thinking';
+      case GenerationStatus.streamingTokens:
+        return 'Writing';
+      case GenerationStatus.idle:
+        return '';
+    }
+  }
+
+  IconData _statusIconData(GenerationStatus status) {
+    switch (status) {
+      case GenerationStatus.searchingDocuments:
+        return Icons.search_rounded;
+      case GenerationStatus.embeddingQuery:
+        return Icons.psychology_rounded;
+      case GenerationStatus.foundContext:
+        return Icons.check_circle_outline_rounded;
+      case GenerationStatus.buildingPrompt:
+        return Icons.construction_rounded;
+      case GenerationStatus.generatingResponse:
+        return Icons.auto_awesome_rounded;
+      case GenerationStatus.streamingTokens:
+        return Icons.draw_rounded;
+      case GenerationStatus.idle:
+        return Icons.circle;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<ChatProvider>(
       builder: (context, chatProvider, _) {
+        final isBusy = chatProvider.isGenerating || chatProvider.isRagSearching;
+
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // RAG progress bar
-            if (chatProvider.isRagSearching)
-              AnimatedContainer(
+            // Generation status bar
+            if (isBusy)
+              AnimatedSize(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeOutCubic,
-                height: 48,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.08),
-                  border: Border(
-                    top: BorderSide(
-                      color: AppColors.primary.withOpacity(0.2),
-                      width: 0.5,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.06),
+                    border: Border(
+                      top: BorderSide(
+                        color: AppColors.primary.withOpacity(0.15),
+                        width: 0.5,
+                      ),
                     ),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        value: chatProvider.ragProgress,
-                        color: AppColors.primary,
-                        backgroundColor: AppColors.surfaceLight,
+                  child: Row(
+                    children: [
+                      // Animated icon
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 300),
+                        child: Icon(
+                          _statusIconData(chatProvider.generationStatus),
+                          key: ValueKey(chatProvider.generationStatus),
+                          size: 14,
+                          color: AppColors.primary,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            chatProvider.ragStatus,
+                      const SizedBox(width: 8),
+                      // Status text
+                      Expanded(
+                        child: Text(
+                          _statusIcon(chatProvider.generationStatus),
+                          style: AppColors.font(
+                            size: 11,
+                            color: AppColors.primary.withOpacity(0.8),
+                            weight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      // Token count during streaming
+                      if (chatProvider.generationStatus == GenerationStatus.streamingTokens &&
+                          chatProvider.tokenCount > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '${chatProvider.tokenCount} tokens',
                             style: AppColors.font(
-                              size: 12,
+                              size: 9,
                               color: AppColors.primary,
-                              weight: FontWeight.w500,
+                              weight: FontWeight.w600,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 2),
-                          LinearProgressIndicator(
-                            value: chatProvider.ragProgress,
-                            backgroundColor: AppColors.surfaceLight,
-                            color: AppColors.primary,
-                            minHeight: 2,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                        ),
+                    ],
+                  ),
                 ),
               ),
             // Input area
             Container(
-          padding: EdgeInsets.only(
-            left: 12,
-            right: 8,
-            top: 8,
-            bottom: MediaQuery.of(context).padding.bottom + 8,
-          ),
-          decoration: const BoxDecoration(
-            color: AppColors.surfaceDark,
-            border: Border(
-              top: BorderSide(
-                color: AppColors.divider,
-                width: 0.5,
+              padding: EdgeInsets.only(
+                left: 12,
+                right: 8,
+                top: 8,
+                bottom: MediaQuery.of(context).padding.bottom + 8,
               ),
-            ),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: Container(
-                  constraints: const BoxConstraints(maxHeight: 120),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceLight,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: _focusNode.hasFocus
-                          ? AppColors.primary.withOpacity(0.4)
-                          : AppColors.divider,
-                      width: 0.5,
-                    ),
-                  ),
-                  child: TextField(
-                    controller: _controller,
-                    focusNode: _focusNode,
-                    maxLines: null,
-                    textInputAction: TextInputAction.newline,
-                    style: AppColors.font(size: 14),
-                    decoration: InputDecoration(
-                      hintText: 'Message R-AI...',
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      filled: false,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      hintStyle: AppColors.font(
-                        size: 14,
-                        color: AppColors.textHint.withOpacity(0.5),
-                      ),
-                    ),
-                    onSubmitted: (_) => _send(),
+              decoration: const BoxDecoration(
+                color: AppColors.surfaceDark,
+                border: Border(
+                  top: BorderSide(
+                    color: AppColors.divider,
+                    width: 0.5,
                   ),
                 ),
               ),
-              const SizedBox(width: 6),
-              chatProvider.isGenerating
-                  ? _buildStopButton(chatProvider)
-                  : _buildSendButton(),
-            ],
-          ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Container(
+                      constraints: const BoxConstraints(maxHeight: 120),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceLight,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: _focusNode.hasFocus
+                              ? AppColors.primary.withOpacity(0.4)
+                              : AppColors.divider,
+                          width: 0.5,
+                        ),
+                      ),
+                      child: TextField(
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        maxLines: null,
+                        textInputAction: TextInputAction.newline,
+                        style: AppColors.font(size: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Message R-AI...',
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          filled: false,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                          hintStyle: AppColors.font(
+                            size: 14,
+                            color: AppColors.textHint.withOpacity(0.5),
+                          ),
+                        ),
+                        onSubmitted: (_) => _send(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  chatProvider.isGenerating
+                      ? _buildStopButton(chatProvider)
+                      : _buildSendButton(),
+                ],
+              ),
             ),
           ],
         );

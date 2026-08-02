@@ -5,6 +5,7 @@ import '../models/message.dart';
 import '../providers/chat_provider.dart';
 import '../utils/theme.dart';
 import 'markdown_message.dart';
+import 'rag_context_chip.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -118,6 +119,9 @@ class MessageBubble extends StatelessWidget {
                     ),
                   if (isLast && message.isStreaming)
                     _buildStreamingIndicator(),
+                  // Show RAG context chips below assistant messages
+                  if (!isUser && message.ragContexts != null && message.ragContexts!.isNotEmpty)
+                    RagContextChip(contexts: message.ragContexts!),
                 ],
               ),
             ),

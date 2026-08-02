@@ -9,6 +9,8 @@ import '../services/storage_service.dart';
 import '../services/tool_service.dart';
 import '../services/log_service.dart';
 import '../providers/rag_provider.dart';
+import '../models/vector_db.dart';
+import '../services/vector_db_service.dart';
 import '../providers/tool_provider.dart';
 
 enum InferenceBlockReason {
@@ -16,6 +18,16 @@ enum InferenceBlockReason {
   noLlmModel,
   ragEnabledButNoEmbeddingModel,
   ragEnabledButNoDatabases,
+}
+
+enum GenerationStatus {
+  idle,
+  searchingDocuments,
+  embeddingQuery,
+  foundContext,
+  buildingPrompt,
+  generatingResponse,
+  streamingTokens,
 }
 
 class ChatProvider extends ChangeNotifier {
@@ -42,6 +54,10 @@ class ChatProvider extends ChangeNotifier {
   double _ragProgress = 0.0;
   String _ragStatus = '';
 
+  // Generation status
+  GenerationStatus _generationStatus = GenerationStatus.idle;
+  int _tokenCount = 0;
+
   ChatProvider({
     required LiteRTService litertService,
     required StorageService storageService,
@@ -64,6 +80,8 @@ class ChatProvider extends ChangeNotifier {
   bool get isRagSearching => _isRagSearching;
   double get ragProgress => _ragProgress;
   String get ragStatus => _ragStatus;
+  GenerationStatus get generationStatus => _generationStatus;
+  int get tokenCount => _tokenCount;
   RagProvider? get ragProvider => _ragProvider;
   ToolProvider? get toolProvider => _toolProvider;
 
@@ -264,12 +282,16 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<String> _generateOnce(String prompt, String systemInstruction) async {
-    _logService.log('ChatProvider', '_generateOnce: prompt=${prompt.length} chars, systemInstruction=${systemInstruction.length} chars');
-    _logService.log('ChatProvider', 'Generation params: streaming=${_cacheService.streamingEnabled}, maxTokens=${_cacheService.maxTokens}, temp=${_cacheService.temperature}, topP=${_cacheService.topP}');
+      _logService.log('ChatProvider', '_generateOnce: prompt=${prompt.length} chars, systemInstruction=${systemInstruction.length} chars');
+      _logService.log('ChatProvider', 'Generation params: streaming=${_cacheService.streamingEnabled}, maxTokens=${_cacheService.maxTokens}, temp=${_cacheService.temperature}, topP=${_cacheService.topP}');
 
-    if (_cacheService.streamingEnabled) {
-      _logService.log('ChatProvider', 'Starting streaming generation...');
-      final stream = _litertService.generateStream(
+      if (_cacheService.streamingEnabled) {
+        _logService.log('ChatProvider', 'Starting streaming generation...');
+        _generationStatus = GenerationStatus.streamingTokens;
+        _ragStatus = '';
+        notifyListeners();
+
+        final stream = _litertService.generateStream(
         prompt: prompt,
         systemInstruction: systemInstruction,
         maxTokens: _cacheService.maxTokens,
@@ -287,6 +309,7 @@ class ChatProvider extends ChangeNotifier {
         }
         _buffer.write(token);
         tokenCount++;
+        _tokenCount = tokenCount;
 
         if (tokenCount % 50 == 0) {
           _logService.log('ChatProvider', 'Streaming: $tokenCount tokens received, ${_buffer.length} chars total');
@@ -329,6 +352,8 @@ class ChatProvider extends ChangeNotifier {
     _isCancelled = false;
     _buffer.clear();
     _usedRag = false;
+    _tokenCount = 0;
+    _generationStatus = GenerationStatus.idle;
     notifyListeners();
 
     try {
@@ -345,6 +370,8 @@ class ChatProvider extends ChangeNotifier {
 
       String promptToSend = userContent;
       String systemInstruction = _cacheService.systemPrompt;
+      List<RagContext>? ragContextsUsed;
+
       _logService.log('ChatProvider', 'System prompt: "${systemInstruction.length > 100 ? systemInstruction.substring(0, 100) + "..." : systemInstruction}"');
 
       // Pre-generation RAG
@@ -356,6 +383,7 @@ class ChatProvider extends ChangeNotifier {
 
           // Show RAG progress
           _isRagSearching = true;
+          _generationStatus = GenerationStatus.searchingDocuments;
           _ragProgress = 0.1;
           _ragStatus = 'Searching documents...';
           notifyListeners();
@@ -363,6 +391,7 @@ class ChatProvider extends ChangeNotifier {
           // Small delay to show the progress bar
           await Future.delayed(const Duration(milliseconds: 100));
 
+          _generationStatus = GenerationStatus.embeddingQuery;
           _ragProgress = 0.3;
           _ragStatus = 'Embedding query...';
           notifyListeners();
@@ -374,6 +403,7 @@ class ChatProvider extends ChangeNotifier {
 
           _logService.log('ChatProvider', 'RAG search returned ${results.length} results');
 
+          _generationStatus = GenerationStatus.foundContext;
           _ragProgress = 0.7;
           _ragStatus = 'Found ${results.length} relevant chunks';
           notifyListeners();
@@ -381,6 +411,14 @@ class ChatProvider extends ChangeNotifier {
           await Future.delayed(const Duration(milliseconds: 200));
 
           if (results.isNotEmpty) {
+            // Build RAG contexts for storage
+            ragContextsUsed = results.map((r) => RagContext(
+              text: r.text,
+              score: r.score,
+              dbName: r.dbPath.split('/').last.replaceAll('.db', ''),
+              chunkId: r.chunkId,
+            )).toList();
+
             // Show context preview
             final firstChunkPreview = results.first.text.length > 50
                 ? results.first.text.substring(0, 50) + '...'
@@ -390,6 +428,10 @@ class ChatProvider extends ChangeNotifier {
             notifyListeners();
 
             await Future.delayed(const Duration(milliseconds: 300));
+
+            _generationStatus = GenerationStatus.buildingPrompt;
+            _ragStatus = 'Building prompt...';
+            notifyListeners();
 
             promptToSend = _ragProvider!.buildRagPrompt(
               userContent,
@@ -417,6 +459,10 @@ class ChatProvider extends ChangeNotifier {
       }
 
       // Generate response
+      _generationStatus = GenerationStatus.generatingResponse;
+      _ragStatus = 'Generating response...';
+      notifyListeners();
+
       _logService.log('ChatProvider', 'Calling _generateOnce...');
       final finalResponse = await _generateOnce(promptToSend, systemInstruction);
       _logService.log('ChatProvider', 'Generation complete: ${finalResponse.length} chars');
@@ -440,6 +486,13 @@ class ChatProvider extends ChangeNotifier {
             _logService.log('ChatProvider', 'RAG search returned ${results.length} results for re-generation');
 
             if (results.isNotEmpty) {
+              ragContextsUsed = results.map((r) => RagContext(
+                text: r.text,
+                score: r.score,
+                dbName: r.dbPath.split('/').last.replaceAll('.db', ''),
+                chunkId: r.chunkId,
+              )).toList();
+
               final ragPrompt = _ragProvider!.buildRagPrompt(
                 userContent,
                 results,
@@ -471,12 +524,12 @@ class ChatProvider extends ChangeNotifier {
           }
         }
 
-        // Finalize message
+        // Finalize message with RAG contexts attached
         if (_currentSession!.messages.isNotEmpty &&
             _currentSession!.messages.last.role == MessageRole.assistant) {
           final content = _currentSession!.messages.last.content;
           _currentSession!.messages.last = _currentSession!.messages.last
-              .copyWith(content: content, isStreaming: false);
+              .copyWith(content: content, isStreaming: false, ragContexts: ragContextsUsed);
         }
 
         // Tool calling
@@ -544,6 +597,8 @@ class ChatProvider extends ChangeNotifier {
       _isRagSearching = false;
       _ragProgress = 0.0;
       _ragStatus = '';
+      _generationStatus = GenerationStatus.idle;
+      _tokenCount = 0;
       _buffer.clear();
       notifyListeners();
     }
@@ -569,6 +624,8 @@ class ChatProvider extends ChangeNotifier {
     _isRagSearching = false;
     _ragProgress = 0.0;
     _ragStatus = '';
+    _generationStatus = GenerationStatus.idle;
+    _tokenCount = 0;
     _buffer.clear();
     _logService.log('ChatProvider', 'Generation stopped');
     notifyListeners();
