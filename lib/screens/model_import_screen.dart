@@ -567,7 +567,7 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                   padding: const EdgeInsets.only(bottom: 12),
                   child: ModelCard(
                     model: model,
-                    isSelected: model.id == modelProvider.currentModel?.id,
+                    isSelected: model.id == modelProvider.selectedModel?.id,
                     onTap: () => modelProvider.selectModel(model),
                     onDelete: () => modelProvider.removeModel(model.id),
                   ),
