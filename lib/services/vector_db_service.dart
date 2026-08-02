@@ -169,11 +169,13 @@ class VectorDbService {
     header.setUint32(8, oldCount + texts.length, Endian.little);
     final updated = header.buffer.asUint8List();
 
-    // Rewrite just the header using random access (don't truncate!)
-    final raf = await file.open(mode: FileMode.writeOnlyRandomAccess);
-    await raf.setPosition(0);
-    await raf.writeFrom(updated, 0, _headerSize);
-    await raf.close();
+    // Rewrite header: read full file, splice updated header, write back
+    final fullBytes = await file.readAsBytes();
+    final dataBytes = fullBytes.sublist(_headerSize);
+    final newFile = Uint8List(updated.length + dataBytes.length);
+    newFile.setRange(0, updated.length, updated);
+    newFile.setRange(updated.length, newFile.length, dataBytes);
+    await file.writeAsBytes(newFile);
 
     _logService.log('VectorDbService', 'Chunks added successfully. New total: ${oldCount + texts.length} chunks');
   }
