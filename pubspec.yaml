@@ -20,6 +20,8 @@ dependencies:
   sqflite: ^2.3.0
   web_socket_channel: ^2.4.0
   tflite_flutter: ^0.12.1
+  flutter_gemma_embedder: ^0.0.1-dev.1
+  archive: ^4.0.9
 
 dev_dependencies:
   flutter_lints: ^2.0.0

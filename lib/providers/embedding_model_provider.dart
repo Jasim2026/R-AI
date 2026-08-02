@@ -33,6 +33,9 @@ class EmbeddingModelProvider extends ChangeNotifier {
   String? get error => _error;
   bool get hasModels => _models.isNotEmpty;
   int get embeddingDimension => _embeddingService.embeddingDimension;
+  EmbeddingBackend? get activeBackend => _embeddingService.activeBackend;
+
+  String get preferredBackend => _cacheService.embeddingBackend;
 
   Future<void> loadModels() async {
     final json = _cacheService.embeddingModelsJson;
@@ -66,11 +69,12 @@ class EmbeddingModelProvider extends ChangeNotifier {
     await _cacheService.setEmbeddingModelsJson(json);
   }
 
-  Future<EmbeddingModel?> importModel() async {
+  /// Import a .zip file containing .tflite + vocab.txt
+  Future<EmbeddingModel?> importZipModel() async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['litertlm', 'litert', 'tflite', 'bin'],
+        allowedExtensions: ['zip'],
       );
 
       if (result == null || result.files.isEmpty) return null;
@@ -78,10 +82,65 @@ class EmbeddingModelProvider extends ChangeNotifier {
       final file = result.files.first;
       if (file.path == null) return null;
 
+      _logService.log('EmbeddingModelProvider', 'Extracting zip: ${file.path}');
+      final extracted = await EmbeddingService.extractZip(file.path!);
+
+      if (extracted == null) {
+        _error = 'Failed to extract zip. Ensure it contains a .tflite model file.';
+        notifyListeners();
+        return null;
+      }
+
+      final modelPath = extracted['model']!;
+      final vocabPath = extracted['vocab'];
+
+      final model = EmbeddingModel(
+        name: file.name.replaceAll(RegExp(r'\.zip$'), ''),
+        path: modelPath,
+        vocabPath: vocabPath,
+        description: vocabPath != null ? 'Imported from zip (model + vocab)' : 'Imported from zip (model only)',
+      );
+
+      _models.add(model);
+      await _saveModels();
+      notifyListeners();
+
+      return model;
+    } catch (e) {
+      _error = 'Failed to import zip: $e';
+      notifyListeners();
+      return null;
+    }
+  }
+
+  /// Import individual files (.tflite model + optional vocab.txt)
+  Future<EmbeddingModel?> importModel() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['tflite', 'litert', 'bin'],
+      );
+
+      if (result == null || result.files.isEmpty) return null;
+
+      final file = result.files.first;
+      if (file.path == null) return null;
+
+      // Try to find vocab.txt in the same directory
+      final modelFile = File(file.path!);
+      final dir = modelFile.parent;
+      String? vocabPath;
+      final vocabFile = File('${dir.path}/vocab.txt');
+      if (await vocabFile.exists()) {
+        vocabPath = vocabFile.path;
+        _logService.log('EmbeddingModelProvider', 'Found vocab.txt at: $vocabPath');
+      }
+
       final model = EmbeddingModel(
         name: file.name.replaceAll(RegExp(r'\.[^.]+$'), ''),
         path: file.path!,
-        description: null,
+        vocabPath: vocabPath,
+        description: vocabPath != null ? 'With vocab.txt' : 'No vocab.txt (Gemma backend only)',
       );
 
       _models.add(model);
@@ -106,7 +165,6 @@ class EmbeddingModelProvider extends ChangeNotifier {
     try {
       _logService.log('EmbeddingModelProvider', 'Loading model: ${model.name} from ${model.path}');
 
-      // Verify file exists
       final file = File(model.path);
       if (!await file.exists()) {
         _error = 'Model file not found: ${model.path}';
@@ -117,7 +175,19 @@ class EmbeddingModelProvider extends ChangeNotifier {
       final fileSize = await file.length();
       _logService.log('EmbeddingModelProvider', 'Model file size: $fileSize bytes');
 
-      final success = await _embeddingService.initialize(model.path);
+      // Determine preferred backend from settings
+      final backendStr = _cacheService.embeddingBackend;
+      final preferredBackend = backendStr == 'gemma'
+          ? EmbeddingBackend.gemma
+          : EmbeddingBackend.tflite;
+
+      _logService.log('EmbeddingModelProvider', 'Preferred backend: $preferredBackend');
+
+      final success = await _embeddingService.initialize(
+        model.path,
+        vocabPath: model.vocabPath,
+        preferredBackend: preferredBackend,
+      );
       _logService.log('EmbeddingModelProvider', 'Embedding service initialized: $success');
 
       _isLoaded = success;
@@ -126,9 +196,13 @@ class EmbeddingModelProvider extends ChangeNotifier {
       if (success) {
         await _cacheService.setSelectedEmbeddingModelId(model.id);
         await _cacheService.setEmbeddingModelLoaded(true);
-        _logService.log('EmbeddingModelProvider', 'Model loaded successfully. Dimension: ${_embeddingService.embeddingDimension}');
+        _logService.log('EmbeddingModelProvider',
+            'Model loaded successfully. Dimension: ${_embeddingService.embeddingDimension}, '
+            'Backend: ${_embeddingService.activeBackend}');
       } else {
-        _error = 'Failed to load embedding model';
+        _error = 'Failed to load embedding model. '
+            'TFLite requires a matching vocab.txt. '
+            'Gemma requires an EmbeddingGemma 300M model.';
         _logService.log('EmbeddingModelProvider', 'ERROR: ${_error}');
       }
 

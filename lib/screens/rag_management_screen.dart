@@ -7,6 +7,8 @@ import '../providers/rag_provider.dart';
 import '../models/embedding_model.dart';
 import '../models/vector_db.dart';
 import '../services/cache_service.dart';
+import '../services/embedding_service.dart';
+import '../services/text_chunker.dart';
 import '../widgets/gradient_background.dart';
 import '../utils/theme.dart';
 import 'vector_db_detail_screen.dart';
@@ -82,11 +84,13 @@ class _RagManagementScreenState extends State<RagManagementScreen>
 class _EmbedderTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Consumer<EmbeddingModelProvider>(
-      builder: (context, provider, _) {
+    return Consumer2<EmbeddingModelProvider, CacheService>(
+      builder: (context, provider, cache, _) {
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            _buildBackendSelector(context, provider, cache),
+            const SizedBox(height: 16),
             _buildStatusCard(provider),
             const SizedBox(height: 16),
             _buildSectionHeader('IMPORTED MODELS'),
@@ -99,10 +103,96 @@ class _EmbedderTab extends StatelessWidget {
             else
               ...provider.models.map((model) => _buildModelCard(context, provider, model)),
             const SizedBox(height: 16),
-            _buildImportButton(context, provider),
+            _buildImportButtons(context, provider),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildBackendSelector(BuildContext context, EmbeddingModelProvider provider, CacheService cache) {
+    final currentBackend = cache.embeddingBackend;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.divider, width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.settings_input_antenna, color: AppColors.primary, size: 18),
+              const SizedBox(width: 10),
+              Text(
+                'EMBEDDING BACKEND',
+                style: AppColors.font(
+                  color: AppColors.textHint,
+                  size: 11,
+                  weight: FontWeight.w700,
+                  letterSpacing: 1,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(
+                value: 'tflite',
+                label: Text('TFLite'),
+                icon: Icon(Icons.memory, size: 16),
+              ),
+              ButtonSegment(
+                value: 'gemma',
+                label: Text('Gemma'),
+                icon: Icon(Icons.auto_awesome, size: 16),
+              ),
+            ],
+            selected: {currentBackend},
+            onSelectionChanged: (selected) {
+              cache.embeddingBackend = selected.first;
+              provider.clearError();
+            },
+            style: ButtonStyle(
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            currentBackend == 'tflite'
+                ? 'TFLite: Any .tflite model + vocab.txt required'
+                : 'Gemma: EmbeddingGemma 300M only, no vocab needed',
+            style: AppColors.font(color: AppColors.textHint, size: 11),
+          ),
+          if (provider.isLoaded && provider.activeBackend != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.success.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.check_circle, color: AppColors.success, size: 14),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Active: ${provider.activeBackend == EmbeddingBackend.gemma ? "Gemma" : "TFLite"} '
+                    '(${provider.embeddingDimension}d)',
+                    style: AppColors.font(color: AppColors.success, size: 11),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -252,7 +342,7 @@ class _EmbedderTab extends StatelessWidget {
           ),
         ),
         subtitle: Text(
-          '${model.dimensions}d · ${model.path.split('/').last}',
+          '${model.dimensions}d · ${model.vocabPath != null ? "has vocab.txt" : "no vocab.txt"} · ${model.path.split('/').last}',
           style: AppColors.font(
             color: AppColors.textHint,
             size: 11,
@@ -266,6 +356,24 @@ class _EmbedderTab extends StatelessWidget {
                 onPressed: provider.isLoading
                     ? null
                     : () async {
+                        // Show warning if no vocab and backend is tflite
+                        final cache = context.read<CacheService>();
+                        if (cache.embeddingBackend == 'tflite' && model.vocabPath == null) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'No vocab.txt found. TFLite backend requires vocab.txt. '
+                                  'Switch to Gemma backend or re-import with a zip containing vocab.txt.',
+                                  style: AppColors.font(size: 12),
+                                ),
+                                backgroundColor: AppColors.warning,
+                                duration: const Duration(seconds: 5),
+                              ),
+                            );
+                          }
+                          return;
+                        }
                         final success = await provider.loadModel(model);
                         if (context.mounted && !success) {
                           final error = provider.error ?? 'Failed to load embedding model';
@@ -319,37 +427,91 @@ class _EmbedderTab extends StatelessWidget {
     );
   }
 
-  Widget _buildImportButton(BuildContext context, EmbeddingModelProvider provider) {
-    return SizedBox(
-      width: double.infinity,
-      height: 48,
-      child: Material(
-        color: AppColors.primary.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: provider.isLoading
-              ? null
-              : () async {
-                  await provider.importModel();
-                },
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.add_rounded, color: AppColors.primary, size: 20),
-              SizedBox(width: 8),
-              Text(
-                'Import Embedding Model',
-                style: AppColors.font(
-                  color: AppColors.primary,
-                  size: 14,
-                  weight: FontWeight.w600,
-                ),
+  Widget _buildImportButtons(BuildContext context, EmbeddingModelProvider provider) {
+    return Column(
+      children: [
+        // Zip import button
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: Material(
+            color: AppColors.primary.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: provider.isLoading
+                  ? null
+                  : () async {
+                      final model = await provider.importZipModel();
+                      if (context.mounted && model != null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Imported: ${model.name}', style: AppColors.font(size: 12)),
+                            backgroundColor: AppColors.success,
+                          ),
+                        );
+                      }
+                    },
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.archive_rounded, color: AppColors.primary, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Import Zip (model + vocab)',
+                    style: AppColors.font(
+                      color: AppColors.primary,
+                      size: 14,
+                      weight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
-      ),
+        const SizedBox(height: 8),
+        // Regular import button
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: Material(
+            color: AppColors.accent.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: provider.isLoading
+                  ? null
+                  : () async {
+                      final model = await provider.importModel();
+                      if (context.mounted && model != null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Imported: ${model.name}', style: AppColors.font(size: 12)),
+                            backgroundColor: AppColors.success,
+                          ),
+                        );
+                      }
+                    },
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.file_upload_outlined, color: AppColors.accent, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Import Model (.tflite)',
+                    style: AppColors.font(
+                      color: AppColors.accent,
+                      size: 14,
+                      weight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1015,43 +1177,5 @@ class _RagSettingsTab extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-class TextChunker {
-  final int chunkSize;
-  final int chunkOverlap;
-
-  const TextChunker({this.chunkSize = 500, this.chunkOverlap = 50});
-
-  List<String> chunk(String text) {
-    if (text.trim().isEmpty) return [];
-    final clean = text.trim();
-    if (clean.length <= chunkSize) return [clean];
-
-    final chunks = <String>[];
-    var start = 0;
-
-    while (start < text.length) {
-      var end = start + chunkSize;
-      if (end < text.length) {
-        final lastSpace = text.lastIndexOf(' ', end);
-        final lastNewline = text.lastIndexOf('\n', end);
-        final breakPoint = lastSpace > lastNewline ? lastSpace : lastNewline;
-        if (breakPoint > start + chunkSize * 0.5) {
-          end = breakPoint + 1;
-        }
-      } else {
-        end = text.length;
-      }
-
-      final chunk = text.substring(start, end).trim();
-      if (chunk.isNotEmpty) chunks.add(chunk);
-
-      start = end - chunkOverlap;
-      if (start >= text.length) break;
-    }
-
-    return chunks;
   }
 }

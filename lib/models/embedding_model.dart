@@ -4,6 +4,7 @@ class EmbeddingModel {
   final String id;
   final String name;
   final String path;
+  final String? vocabPath;
   final String? description;
   final int dimensions;
   final DateTime importedAt;
@@ -12,6 +13,7 @@ class EmbeddingModel {
     String? id,
     required this.name,
     required this.path,
+    this.vocabPath,
     this.description,
     this.dimensions = 384,
     DateTime? importedAt,
@@ -21,6 +23,7 @@ class EmbeddingModel {
   EmbeddingModel copyWith({
     String? name,
     String? path,
+    String? vocabPath,
     String? description,
     int? dimensions,
   }) {
@@ -28,6 +31,7 @@ class EmbeddingModel {
       id: id,
       name: name ?? this.name,
       path: path ?? this.path,
+      vocabPath: vocabPath ?? this.vocabPath,
       description: description ?? this.description,
       dimensions: dimensions ?? this.dimensions,
       importedAt: importedAt,
@@ -39,6 +43,7 @@ class EmbeddingModel {
       'id': id,
       'name': name,
       'path': path,
+      'vocabPath': vocabPath,
       'description': description,
       'dimensions': dimensions,
       'importedAt': importedAt.toIso8601String(),
@@ -50,6 +55,7 @@ class EmbeddingModel {
       id: map['id'],
       name: map['name'],
       path: map['path'],
+      vocabPath: map['vocabPath'],
       description: map['description'],
       dimensions: map['dimensions'] ?? 384,
       importedAt: DateTime.parse(map['importedAt']),

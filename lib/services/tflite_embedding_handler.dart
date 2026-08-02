@@ -36,11 +36,27 @@ class TfliteEmbeddingHandler {
       final fileSize = await file.length();
       _logService.log('TfliteEmbeddingHandler', 'Model file size: $fileSize bytes');
 
-      // Load vocabulary if provided
-      if (vocabPath != null) {
-        _vocab = await _loadVocab(vocabPath);
-        _logService.log('TfliteEmbeddingHandler', 'Loaded vocab: ${_vocab?.length ?? 0} entries');
+      // Load vocabulary — REQUIRED for correct tokenization
+      if (vocabPath == null || vocabPath.isEmpty) {
+        _logService.log('TfliteEmbeddingHandler', 'ERROR: No vocab.txt provided. '
+            'TFLite embedding requires a vocab.txt file matching the model. '
+            'Import a .zip containing both the .tflite model and vocab.txt, '
+            'or import vocab.txt separately.');
+        return false;
       }
+
+      final vocabFile = File(vocabPath);
+      if (!await vocabFile.exists()) {
+        _logService.log('TfliteEmbeddingHandler', 'ERROR: Vocab file not found: $vocabPath');
+        return false;
+      }
+
+      _vocab = await _loadVocab(vocabPath);
+      if (_vocab == null || _vocab!.isEmpty) {
+        _logService.log('TfliteEmbeddingHandler', 'ERROR: Vocab file is empty or invalid: $vocabPath');
+        return false;
+      }
+      _logService.log('TfliteEmbeddingHandler', 'Loaded vocab: ${_vocab!.length} entries');
 
       final options = InterpreterOptions()..threads = 4;
 
@@ -65,11 +81,9 @@ class TfliteEmbeddingHandler {
         }
       }
 
-      // Detect if model has 3 inputs (BERT-style) or 1 input
       _hasThreeInputs = inputTensors.length == 3;
       _logService.log('TfliteEmbeddingHandler', 'Model has ${inputTensors.length} inputs (3-input BERT: $_hasThreeInputs)');
 
-      // Get max sequence length from first input
       if (inputTensors.isNotEmpty) {
         final inputShape = inputTensors.first.shape;
         if (inputShape.length >= 2) {
@@ -105,10 +119,7 @@ class TfliteEmbeddingHandler {
 
   Future<Map<String, int>> _loadVocab(String path) async {
     final file = File(path);
-    if (!await file.exists()) {
-      _logService.log('TfliteEmbeddingHandler', 'WARNING: Vocab file not found: $path');
-      return {};
-    }
+    if (!await file.exists()) return {};
     final lines = await file.readAsLines();
     final vocab = <String, int>{};
     for (var i = 0; i < lines.length; i++) {
@@ -121,16 +132,10 @@ class TfliteEmbeddingHandler {
   }
 
   List<List<int>> tokenize(String text) {
-    if (_vocab != null && _vocab!.isNotEmpty) {
-      return _tokenizeWithVocab(text);
-    }
-    return _tokenizeBasic(text);
-  }
-
-  List<List<int>> _tokenizeWithVocab(String text) {
     final tokens = <int>[];
     final words = text.toLowerCase().split(RegExp(r'\s+'));
 
+    // [CLS] token
     tokens.add(_vocab!['[CLS]'] ?? 101);
 
     for (var word in words) {
@@ -165,58 +170,24 @@ class TfliteEmbeddingHandler {
       }
     }
 
+    // [SEP] token
     tokens.add(_vocab!['[SEP]'] ?? 102);
 
+    // Attention mask
     final attentionMask = List<int>.filled(_maxLength, 0);
     for (var i = 0; i < tokens.length && i < _maxLength; i++) {
       attentionMask[i] = 1;
     }
 
+    // Token type IDs
     final tokenTypeIds = List<int>.filled(_maxLength, 0);
 
+    // Pad tokens to max length
     while (tokens.length < _maxLength) {
       tokens.insert(tokens.length - 1, 0);
     }
 
     return [tokens, attentionMask, tokenTypeIds];
-  }
-
-  List<List<int>> _tokenizeBasic(String text) {
-    final tokens = <int>[];
-    final words = text.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), ' ').split(RegExp(r'\s+'));
-
-    tokens.add(101); // [CLS]
-
-    for (var word in words) {
-      if (word.isEmpty) continue;
-      if (tokens.length >= _maxLength - 1) break;
-      for (var i = 0; i < word.length && tokens.length < _maxLength - 1; i++) {
-        tokens.add(_charToId(word[i]));
-      }
-    }
-
-    tokens.add(102); // [SEP]
-
-    final attentionMask = List<int>.filled(_maxLength, 0);
-    for (var i = 0; i < tokens.length && i < _maxLength; i++) {
-      attentionMask[i] = 1;
-    }
-
-    final tokenTypeIds = List<int>.filled(_maxLength, 0);
-
-    while (tokens.length < _maxLength) {
-      tokens.insert(tokens.length - 1, 0);
-    }
-
-    return [tokens, attentionMask, tokenTypeIds];
-  }
-
-  int _charToId(String char) {
-    if (char == ' ') return 1037;
-    if (RegExp(r'[0-9]').hasMatch(char)) return 48 + int.parse(char);
-    if (RegExp(r'[a-z]').hasMatch(char)) return 97 + (char.codeUnitAt(0) - 97);
-    if (RegExp(r'[A-Z]').hasMatch(char)) return 65 + (char.codeUnitAt(0) - 65);
-    return 100;
   }
 
   Future<Float32List?> embed(String text) async {
@@ -235,13 +206,10 @@ class TfliteEmbeddingHandler {
 
       _logService.log('TfliteEmbeddingHandler', 'Tokens length: ${inputIds.length}');
 
-      // Create output tensor using reshape pattern from tflite_flutter docs
       final output = List.filled(_embeddingDimension, 0).reshape([1, _embeddingDimension]);
 
-      // Run inference based on model input count
       _logService.log('TfliteEmbeddingHandler', 'Running inference...');
       if (_hasThreeInputs) {
-        // BERT-style model: each input is a 2D tensor [1, maxLength]
         final inputs = [
           [inputIds],
           [attentionMask],
@@ -249,11 +217,10 @@ class TfliteEmbeddingHandler {
         ];
         _interpreter!.runForMultipleInputs(inputs, {0: output});
       } else {
-        // Single input model
         _interpreter!.run([inputIds], output);
       }
 
-      // Get embedding and normalize
+      // Get embedding and L2 normalize
       final embedding = Float32List(_embeddingDimension);
       var norm = 0.0;
       for (var i = 0; i < _embeddingDimension; i++) {
@@ -262,7 +229,6 @@ class TfliteEmbeddingHandler {
       }
       norm = sqrt(norm);
 
-      // L2 normalize
       if (norm > 0) {
         for (var i = 0; i < _embeddingDimension; i++) {
           embedding[i] /= norm;
