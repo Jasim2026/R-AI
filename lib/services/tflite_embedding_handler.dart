@@ -45,7 +45,7 @@ class TfliteEmbeddingHandler {
       final options = InterpreterOptions()..threads = 4;
 
       _logService.log('TfliteEmbeddingHandler', 'Creating interpreter from file...');
-      _interpreter = await Interpreter.fromFile(modelPath, options: options);
+      _interpreter = await Interpreter.fromFile(File(modelPath), options: options);
       _logService.log('TfliteEmbeddingHandler', 'Interpreter created successfully');
 
       _logService.log('TfliteEmbeddingHandler', 'Getting input/output tensors...');
