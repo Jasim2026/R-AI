@@ -1,4 +1,4 @@
-name: R-AI
+name: r_ai
 description: On-device LLM inference app with NPU/GPU acceleration via LiteRT.
 publish_to: 'none'
 version: 1.0.0+1
