@@ -768,7 +768,7 @@ class _DocumentsTab extends StatelessWidget {
                 filePath: file.path!,
                 dbName: dbName,
                 chunkSize: chunkSize,
-                overlap: chunkOverlap,
+                chunkOverlap: chunkOverlap,
               ),
             );
           },
@@ -893,7 +893,7 @@ class _DocumentsTab extends StatelessWidget {
                 dbPath: dbPath,
                 text: text,
                 chunkSize: cacheService.chunkSize,
-                overlap: cacheService.chunkOverlap,
+                chunkOverlap: cacheService.chunkOverlap,
               );
             },
             child: Text('Process'),
