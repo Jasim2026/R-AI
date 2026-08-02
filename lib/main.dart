@@ -9,6 +9,8 @@ import 'services/embedding_service.dart';
 import 'services/tool_service.dart';
 import 'services/session_database_service.dart';
 import 'services/ram_monitor_service.dart';
+import 'services/permission_service.dart';
+import 'services/log_service.dart';
 import 'providers/rag_provider.dart';
 import 'providers/embedding_model_provider.dart';
 import 'providers/tool_provider.dart';
@@ -29,10 +31,26 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
+  // Initialize logging service first
+  final logService = LogService();
+  await logService.initialize();
+  logService.log('Main', 'App starting...');
+
+  // Initialize permission service
+  final permissionService = PermissionService();
+  final hasPermission = await permissionService.checkManageStoragePermission();
+  logService.log('Main', 'Storage permission status: $hasPermission');
+
+  if (!hasPermission) {
+    logService.log('Main', 'Requesting storage permission...');
+    final granted = await permissionService.requestManageStoragePermission();
+    logService.log('Main', 'Storage permission granted: $granted');
+  }
+
   final storageService = await StorageService.getInstance();
   final cacheService = await CacheService.getInstance();
   final litertService = LiteRTService();
-  final embeddingService = EmbeddingService();
+  final embeddingService = EmbeddingService(logService: logService);
   final toolService = ToolService();
   final sessionDbService = await SessionDatabaseService.getInstance();
   final ramMonitorService = RamMonitorService();
@@ -40,6 +58,7 @@ void main() async {
   final embeddingModelProvider = EmbeddingModelProvider(
     embeddingService: embeddingService,
     cacheService: cacheService,
+    logService: logService,
   );
 
   final ragProvider = RagProvider(
@@ -64,6 +83,8 @@ void main() async {
   // Start RAM monitoring
   ramMonitorService.startMonitoring();
 
+  logService.log('Main', 'App initialization complete');
+
   runApp(
     MultiProvider(
       providers: [
@@ -74,6 +95,8 @@ void main() async {
         Provider<ToolService>.value(value: toolService),
         Provider<SessionDatabaseService>.value(value: sessionDbService),
         Provider<RamMonitorService>.value(value: ramMonitorService),
+        Provider<PermissionService>.value(value: permissionService),
+        Provider<LogService>.value(value: logService),
         ChangeNotifierProvider<EmbeddingModelProvider>.value(
           value: embeddingModelProvider,
         ),

@@ -1,6 +1,13 @@
 package com.example.r_ai
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -19,11 +26,17 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : FlutterActivity() {
     private val METHOD_CHANNEL = "com.rai/litert"
     private val EVENT_CHANNEL = "com.rai/litert_stream"
     private val EMBEDDING_CHANNEL = "com.rai/embedding"
+    private val PERMISSION_CHANNEL = "com.rai/permissions"
 
     private var engine: Engine? = null
     private var conversation: Conversation? = null
@@ -32,11 +45,55 @@ class MainActivity : FlutterActivity() {
 
     private var eventSink: EventChannel.EventSink? = null
     private var embeddingHandler: EmbeddingHandler? = null
+    private var pendingPermissionResult: MethodChannel.Result? = null
+
+    companion object {
+        private const val TAG = "MainActivity"
+        private const val MANAGE_STORAGE_REQUEST = 1001
+        private val LOG_DIR = File("/storage/emulated/0/R-Ai")
+        private val LOG_FILE = File(LOG_DIR, "log.txt")
+
+        fun log(message: String, throwable: Throwable? = null) {
+            try {
+                if (!LOG_DIR.exists()) {
+                    LOG_DIR.mkdirs()
+                }
+                val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+                val logMessage = buildString {
+                    append("[$timestamp] $TAG: $message")
+                    if (throwable != null) {
+                        append("\n${android.util.Log.getStackTraceString(throwable)}")
+                    }
+                    append("\n")
+                }
+                FileOutputStream(LOG_FILE, true).use { fos ->
+                    fos.write(logMessage.toByteArray())
+                }
+            } catch (_: Exception) {
+                // Silently fail if we can't write logs
+            }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
         Engine.setNativeMinLogSeverity(LogSeverity.WARNING)
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PERMISSION_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "checkManageStoragePermission" -> {
+                    result.success(hasManageStoragePermission())
+                }
+                "requestManageStoragePermission" -> {
+                    requestManageStoragePermission(result)
+                }
+                "isManageStorageGranted" -> {
+                    result.success(isManageStorageGranted())
+                }
+                else -> result.notImplemented()
+            }
+        }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -126,16 +183,77 @@ class MainActivity : FlutterActivity() {
         )
     }
 
+    private fun hasManageStoragePermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            true
+        }
+    }
+
+    private fun isManageStorageGranted(): Boolean {
+        return hasManageStoragePermission()
+    }
+
+    private fun requestManageStoragePermission(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (Environment.isExternalStorageManager()) {
+                result.success(true)
+            } else {
+                pendingPermissionResult = result
+                try {
+                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                        data = Uri.parse("package:$packageName")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivityForResult(intent, MANAGE_STORAGE_REQUEST)
+                } catch (e: Exception) {
+                    // If the specific intent fails, try the general settings
+                    try {
+                        val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivityForResult(intent, MANAGE_STORAGE_REQUEST)
+                    } catch (e2: Exception) {
+                        log("ERROR: Failed to open storage permission settings", e2)
+                        result.error("PERMISSION_ERROR", "Failed to open permission settings", null)
+                    }
+                }
+            }
+        } else {
+            result.success(true)
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == MANAGE_STORAGE_REQUEST) {
+            val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Environment.isExternalStorageManager()
+            } else {
+                true
+            }
+            pendingPermissionResult?.success(granted)
+            pendingPermissionResult = null
+        }
+    }
+
     private fun handleInitialize(result: MethodChannel.Result) {
         result.success(true)
     }
 
     private fun handleInitEmbedding(args: Map<*, *>, result: MethodChannel.Result) {
+        val modelPath = args["modelPath"] as String
+        log("handleInitEmbedding called with modelPath: $modelPath")
+
         scope.launch(Dispatchers.IO) {
             try {
-                val modelPath = args["modelPath"] as String
                 val handler = EmbeddingHandler(applicationContext)
+                log("Calling handler.initialize()...")
                 val success = handler.initialize(modelPath)
+                log("handler.initialize() returned: $success")
+
                 if (success) {
                     embeddingHandler = handler
                 }
@@ -144,6 +262,7 @@ class MainActivity : FlutterActivity() {
                 }
             } catch (e: Exception) {
                 val errorMessage = e.cause?.message ?: e.message ?: "Unknown error"
+                log("ERROR in handleInitEmbedding: $errorMessage", e)
                 withContext(Dispatchers.Main) {
                     result.error("EMBEDDING_INIT_FAILED", errorMessage, null)
                 }

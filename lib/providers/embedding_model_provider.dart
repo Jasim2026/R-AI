@@ -5,10 +5,12 @@ import 'package:file_picker/file_picker.dart';
 import '../models/embedding_model.dart';
 import '../services/embedding_service.dart';
 import '../services/cache_service.dart';
+import '../services/log_service.dart';
 
 class EmbeddingModelProvider extends ChangeNotifier {
   final EmbeddingService _embeddingService;
   final CacheService _cacheService;
+  final LogService _logService;
 
   List<EmbeddingModel> _models = [];
   EmbeddingModel? _selectedModel;
@@ -19,8 +21,10 @@ class EmbeddingModelProvider extends ChangeNotifier {
   EmbeddingModelProvider({
     required EmbeddingService embeddingService,
     required CacheService cacheService,
+    LogService? logService,
   })  : _embeddingService = embeddingService,
-        _cacheService = cacheService;
+        _cacheService = cacheService,
+        _logService = logService ?? LogService();
 
   List<EmbeddingModel> get models => _models;
   EmbeddingModel? get selectedModel => _selectedModel;
@@ -100,21 +104,39 @@ class EmbeddingModelProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      _logService.log('EmbeddingModelProvider', 'Loading model: ${model.name} from ${model.path}');
+
+      // Verify file exists
+      final file = File(model.path);
+      if (!await file.exists()) {
+        _error = 'Model file not found: ${model.path}';
+        _logService.log('EmbeddingModelProvider', 'ERROR: ${_error}');
+        return false;
+      }
+
+      final fileSize = await file.length();
+      _logService.log('EmbeddingModelProvider', 'Model file size: $fileSize bytes');
+
       final success = await _embeddingService.initialize(model.path);
+      _logService.log('EmbeddingModelProvider', 'Embedding service initialized: $success');
+
       _isLoaded = success;
       _selectedModel = model;
 
       if (success) {
         await _cacheService.setSelectedEmbeddingModelId(model.id);
         await _cacheService.setEmbeddingModelLoaded(true);
+        _logService.log('EmbeddingModelProvider', 'Model loaded successfully. Dimension: ${_embeddingService.embeddingDimension}');
       } else {
         _error = 'Failed to load embedding model';
+        _logService.log('EmbeddingModelProvider', 'ERROR: ${_error}');
       }
 
       return success;
-    } catch (e) {
+    } catch (e, stackTrace) {
       _isLoaded = false;
       _error = 'Error loading model: $e';
+      _logService.logError('EmbeddingModelProvider', 'Exception loading model', e, stackTrace);
       return false;
     } finally {
       _isLoading = false;

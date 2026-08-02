@@ -1,11 +1,16 @@
 import 'package:flutter/services.dart';
+import '../services/log_service.dart';
 
 class EmbeddingService {
   static const MethodChannel _channel = MethodChannel('com.rai/embedding');
+  final LogService _logService;
 
   bool _isInitialized = false;
   int _embeddingDimension = 0;
   String? _currentModelPath;
+
+  EmbeddingService({LogService? logService})
+      : _logService = logService ?? LogService();
 
   bool get isInitialized => _isInitialized;
   int get embeddingDimension => _embeddingDimension;
@@ -13,7 +18,10 @@ class EmbeddingService {
 
   Future<bool> initialize(String modelPath) async {
     try {
+      _logService.log('EmbeddingService', 'Initializing with model: $modelPath');
+
       if (_isInitialized && _currentModelPath == modelPath) {
+        _logService.log('EmbeddingService', 'Already initialized with this model');
         return true;
       }
 
@@ -22,15 +30,20 @@ class EmbeddingService {
       });
       _isInitialized = result as bool;
 
+      _logService.log('EmbeddingService', 'initEmbedding returned: $_isInitialized');
+
       if (_isInitialized) {
         _currentModelPath = modelPath;
         _embeddingDimension = await getDimension();
+        _logService.log('EmbeddingService', 'Embedding dimension: $_embeddingDimension');
       }
 
       return _isInitialized;
     } on PlatformException catch (e) {
+      _logService.logError('EmbeddingService', 'PlatformException initializing embedding', e, null);
       throw Exception('Failed to initialize embedding: ${e.message}');
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _logService.logError('EmbeddingService', 'Exception initializing embedding', e, stackTrace);
       throw Exception('Failed to initialize embedding: $e');
     }
   }
@@ -43,6 +56,7 @@ class EmbeddingService {
       _embeddingDimension = result as int;
       return _embeddingDimension;
     } on PlatformException catch (e) {
+      _logService.logError('EmbeddingService', 'Failed to get dimension', e, null);
       throw Exception('Failed to get embedding dimension: ${e.message}');
     }
   }
@@ -58,6 +72,7 @@ class EmbeddingService {
       });
       return List<double>.from(result);
     } on PlatformException catch (e) {
+      _logService.logError('EmbeddingService', 'Failed to embed text', e, null);
       throw Exception('Failed to embed text: ${e.message}');
     }
   }
@@ -73,6 +88,7 @@ class EmbeddingService {
       });
       return (result as List).map((e) => List<double>.from(e)).toList();
     } on PlatformException catch (e) {
+      _logService.logError('EmbeddingService', 'Failed to embed batch', e, null);
       throw Exception('Failed to embed batch: ${e.message}');
     }
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/log_service.dart';
 import '../widgets/setting_tile.dart';
 import '../widgets/gradient_background.dart';
 import '../utils/theme.dart';
@@ -234,6 +235,23 @@ class SettingsScreen extends StatelessWidget {
                           );
                         }
                       },
+                    ),
+                  ],
+                ),
+                _buildSection(
+                  'Debug',
+                  [
+                    SettingTile(
+                      icon: Icons.article_outlined,
+                      iconColor: AppColors.accent,
+                      title: 'View Logs',
+                      subtitle: 'View application logs at /storage/emulated/0/R-Ai/log.txt',
+                      trailing: Icon(
+                        Icons.chevron_right,
+                        color: AppColors.textHint,
+                        size: 20,
+                      ),
+                      onTap: () => _showLogViewer(context),
                     ),
                   ],
                 ),
@@ -660,6 +678,15 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
   }
+
+  void _showLogViewer(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const _LogViewer(),
+    );
+  }
 }
 
 class _SystemPromptEditor extends StatefulWidget {
@@ -749,6 +776,112 @@ class _SystemPromptEditorState extends State<_SystemPromptEditor> {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LogViewer extends StatefulWidget {
+  const _LogViewer();
+
+  @override
+  State<_LogViewer> createState() => _LogViewerState();
+}
+
+class _LogViewerState extends State<_LogViewer> {
+  String _logContent = '';
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLog();
+  }
+
+  Future<void> _loadLog() async {
+    final logService = LogService();
+    final content = await logService.readLog();
+    if (mounted) {
+      setState(() {
+        _logContent = content.isEmpty ? 'No logs yet' : content;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.8,
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 12),
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.textHint.withOpacity(0.3),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Application Logs',
+                    style: AppColors.font(
+                      color: AppColors.textPrimary,
+                      size: 18,
+                      weight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () async {
+                    await LogService().clear();
+                    _loadLog();
+                  },
+                  icon: Icon(Icons.delete_outline, color: AppColors.error, size: 20),
+                  tooltip: 'Clear logs',
+                ),
+                IconButton(
+                  onPressed: () => _loadLog(),
+                  icon: Icon(Icons.refresh, color: AppColors.primary, size: 20),
+                  tooltip: 'Refresh',
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                : Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceDark,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.divider, width: 0.5),
+                    ),
+                    child: SingleChildScrollView(
+                      child: Text(
+                        _logContent,
+                        style: AppColors.mono(
+                          color: AppColors.textSecondary,
+                          size: 11,
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 16),
         ],
       ),
     );
