@@ -10,6 +10,7 @@ class TfliteEmbeddingHandler {
   int _embeddingDimension = 0;
   int _maxLength = 128;
   String? _currentModelPath;
+  bool _hasThreeInputs = false;
 
   final LogService _logService;
 
@@ -52,21 +53,24 @@ class TfliteEmbeddingHandler {
       _logService.log('TfliteEmbeddingHandler', 'Output tensors: ${outputTensors.length}');
       for (var tensor in outputTensors) {
         _logService.log('TfliteEmbeddingHandler', '  Output: ${tensor.name} shape=${tensor.shape} type=${tensor.type}');
-        // Get embedding dimension from output tensor
         if (tensor.shape.length >= 2) {
           _embeddingDimension = tensor.shape.last;
         }
       }
 
-      if (_embeddingDimension == 0) {
-        // Fallback: try to infer from model input
-        if (inputTensors.isNotEmpty) {
-          final inputShape = inputTensors.first.shape;
-          if (inputShape.length >= 2) {
-            _maxLength = inputShape[1];
-          }
+      // Detect if model has 3 inputs (BERT-style) or 1 input
+      _hasThreeInputs = inputTensors.length == 3;
+      _logService.log('TfliteEmbeddingHandler', 'Model has ${inputTensors.length} inputs (3-input BERT: $_hasThreeInputs)');
+
+      // Get max sequence length from first input
+      if (inputTensors.isNotEmpty) {
+        final inputShape = inputTensors.first.shape;
+        if (inputShape.length >= 2) {
+          _maxLength = inputShape[1];
         }
-        // Default dimension for all-MiniLM-L6-v2
+      }
+
+      if (_embeddingDimension == 0) {
         _embeddingDimension = 384;
       }
 
@@ -92,142 +96,54 @@ class TfliteEmbeddingHandler {
     }
   }
 
-  List<int> tokenize(String text) {
-    // Simple BERT WordPiece tokenizer
-    // This is a basic implementation - for production, use a proper tokenizer
+  /// Tokenize text for BERT model
+  /// Returns [inputIds, attentionMask, tokenTypeIds]
+  List<List<int>> tokenize(String text) {
     final tokens = <int>[];
-    final words = text.toLowerCase().split(RegExp(r'\s+'));
+    final words = text.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), ' ').split(RegExp(r'\s+'));
 
-    // Basic vocabulary - common tokens for English
-    // In production, load from tokenizer.json file
-    final vocab = _getBasicVocab();
-
-    tokens.add(vocab['[CLS]'] ?? 101);
-    tokens.add(vocab['[SEP]'] ?? 102);
+    // Add [CLS] token
+    tokens.add(101);
 
     for (var word in words) {
+      if (word.isEmpty) continue;
       if (tokens.length >= _maxLength - 1) break;
 
-      // Try whole word first
-      if (vocab.containsKey(word)) {
-        tokens.insert(tokens.length - 1, vocab[word]!);
-      } else {
-        // Basic wordpiece: split into subwords
-        var remaining = word;
-        var isFirst = true;
-
-        while (remaining.isNotEmpty && tokens.length < _maxLength - 1) {
-          var found = false;
-          for (var end = remaining.length; end > 0; end--) {
-            var subword = remaining.substring(0, end);
-            if (!isFirst) subword = '##$subword';
-
-            if (vocab.containsKey(subword)) {
-              tokens.insert(tokens.length - 1, vocab[subword]!);
-              remaining = remaining.substring(end);
-              isFirst = false;
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
-            // Unknown token
-            tokens.insert(tokens.length - 1, vocab['[UNK]'] ?? 100);
-            remaining = '';
-          }
-        }
+      // Simple character-level tokenization for demonstration
+      // For production, load proper tokenizer.json from model
+      for (var i = 0; i < word.length && tokens.length < _maxLength - 1; i++) {
+        tokens.add(_charToId(word[i]));
       }
     }
 
-    // Pad to max length
-    while (tokens.length < _maxLength) {
-      tokens.insert(tokens.length - 1, vocab['[PAD]'] ?? 0);
+    // Add [SEP] token
+    tokens.add(102);
+
+    // Create attention mask (1 for real tokens, 0 for padding)
+    final attentionMask = List<int>.filled(_maxLength, 0);
+    for (var i = 0; i < tokens.length && i < _maxLength; i++) {
+      attentionMask[i] = 1;
     }
 
-    return tokens;
+    // Create token type IDs (0 for all tokens in single sentence)
+    final tokenTypeIds = List<int>.filled(_maxLength, 0);
+
+    // Pad tokens to max length
+    while (tokens.length < _maxLength) {
+      tokens.insert(tokens.length - 1, 0); // Insert before [SEP]
+    }
+
+    return [tokens, attentionMask, tokenTypeIds];
   }
 
-  Map<String, int> _getBasicVocab() {
-    // Basic vocabulary for demonstration
-    // In production, load from tokenizer.json or vocab.txt file
-    return {
-      '[PAD]': 0,
-      '[UNK]': 100,
-      '[CLS]': 101,
-      '[SEP]': 102,
-      '[MASK]': 103,
-      'the': 1996,
-      'a': 1037,
-      'an': 2019,
-      'is': 2003,
-      'are': 2024,
-      'was': 2001,
-      'were': 2020,
-      'be': 2022,
-      'been': 2042,
-      'being': 2108,
-      'have': 2031,
-      'has': 2038,
-      'had': 2041,
-      'do': 2052,
-      'does': 2528,
-      'did': 2106,
-      'will': 2097,
-      'would': 2052,
-      'could': 2071,
-      'should': 2323,
-      'may': 2089,
-      'might': 2454,
-      'shall': 2323,
-      'can': 2064,
-      'need': 2342,
-      'i': 1045,
-      'me': 2033,
-      'my': 2026,
-      'mine': 2026,
-      'you': 2017,
-      'your': 2115,
-      'he': 2002,
-      'him': 2002,
-      'his': 2011,
-      'she': 2016,
-      'her': 2016,
-      'it': 2009,
-      'its': 2009,
-      'we': 2057,
-      'us': 2149,
-      'our': 2256,
-      'they': 2027,
-      'them': 2068,
-      'their': 2037,
-      'what': 2054,
-      'which': 2029,
-      'who': 2040,
-      'whom': 2040,
-      'this': 2023,
-      'that': 2008,
-      'these': 2122,
-      'those': 2008,
-      'not': 2025,
-      'no': 2053,
-      'but': 2021,
-      'if': 2065,
-      'or': 2030,
-      'and': 1998,
-      'so': 2061,
-      'just': 2074,
-      'than': 2084,
-      'more': 2062,
-      'also': 2036,
-      'very': 2061,
-      'often': 2160,
-      'however': 2116,
-      'too': 2055,
-      'quite': 3243,
-      'since': 2116,
-      'until': 2127,
-      'while': 2096,
-    };
+  int _charToId(String char) {
+    // Map common characters to IDs
+    // For production, use proper tokenizer vocabulary
+    if (char == ' ') return 1037; // 'a' space-like
+    if (RegExp(r'[0-9]').hasMatch(char)) return 48 + int.parse(char);
+    if (RegExp(r'[a-z]').hasMatch(char)) return 97 + (char.codeUnitAt(0) - 97);
+    if (RegExp(r'[A-Z]').hasMatch(char)) return 65 + (char.codeUnitAt(0) - 65);
+    return 100; // [UNK]
   }
 
   Future<Float32List?> embed(String text) async {
@@ -239,25 +155,30 @@ class TfliteEmbeddingHandler {
     try {
       _logService.log('TfliteEmbeddingHandler', 'Tokenizing text: "${text.substring(0, min(50, text.length))}..."');
 
-      final tokens = tokenize(text);
-      _logService.log('TfliteEmbeddingHandler', 'Tokens length: ${tokens.length}');
+      final tokenized = tokenize(text);
+      final inputIds = tokenized[0];
+      final attentionMask = tokenized[1];
+      final tokenTypeIds = tokenized[2];
 
-      // Create attention mask (1 for real tokens, 0 for padding)
-      final attentionMask = Int32List(_maxLength);
-      for (var i = 0; i < _maxLength; i++) {
-        attentionMask[i] = tokens[i] != 0 ? 1 : 0;
-      }
+      _logService.log('TfliteEmbeddingHandler', 'Tokens length: ${inputIds.length}');
 
-      // Create input tensor [1, maxLength]
-      final input = [tokens];
-      final mask = [attentionMask.toList()];
+      // Create output tensor as nested list [1, embeddingDimension]
+      final output = List.generate(1, (_) => List<double>.filled(_embeddingDimension, 0.0));
 
-      // Create output tensor [1, embeddingDimension]
-      final output = List.filled(1 * _embeddingDimension, 0.0).reshape([1, _embeddingDimension]);
-
-      // Run inference
+      // Run inference based on model input count
       _logService.log('TfliteEmbeddingHandler', 'Running inference...');
-      _interpreter!.run(input, output);
+      if (_hasThreeInputs) {
+        // BERT-style model: input_ids, attention_mask, token_type_ids
+        final inputs = [
+          [inputIds],
+          [attentionMask],
+          [tokenTypeIds],
+        ];
+        _interpreter!.runForMultipleInputs(inputs, {0: output});
+      } else {
+        // Single input model
+        _interpreter!.run([inputIds], output);
+      }
 
       // Get embedding and normalize
       final embedding = Float32List(_embeddingDimension);
@@ -284,7 +205,11 @@ class TfliteEmbeddingHandler {
   }
 
   Future<List<Float32List?>> embedBatch(List<String> texts) async {
-    return Future.wait(texts.map((text) => embed(text)));
+    final results = <Float32List?>[];
+    for (var text in texts) {
+      results.add(await embed(text));
+    }
+    return results;
   }
 
   Future<void> close() async {
@@ -293,6 +218,7 @@ class TfliteEmbeddingHandler {
     _isInitialized = false;
     _embeddingDimension = 0;
     _currentModelPath = null;
+    _hasThreeInputs = false;
   }
 
   bool isReady() => _isInitialized;
