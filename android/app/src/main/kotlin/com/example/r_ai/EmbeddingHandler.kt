@@ -31,7 +31,7 @@ class EmbeddingHandler(private val context: Context) {
 
         return try {
             val result: TextEmbedderResult = textEmbedder!!.embed(text)
-            val embedding = result.embedding().floatEmbedding()
+            val embedding = result.embeddings()[0].floatEmbedding()
             val floatArray = FloatArray(embedding.size)
             for (i in embedding.indices) {
                 floatArray[i] = embedding[i]
