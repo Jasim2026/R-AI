@@ -768,7 +768,7 @@ class _DocumentsTab extends StatelessWidget {
                 filePath: file.path!,
                 dbName: dbName,
                 chunkSize: chunkSize,
-                chunkOverlap: chunkOverlap,
+                overlap: chunkOverlap,
               ),
             );
           },
@@ -893,7 +893,7 @@ class _DocumentsTab extends StatelessWidget {
                 dbPath: dbPath,
                 text: text,
                 chunkSize: cacheService.chunkSize,
-                chunkOverlap: cacheService.chunkOverlap,
+                overlap: cacheService.chunkOverlap,
               );
             },
             child: Text('Process'),
@@ -943,7 +943,7 @@ class _ProcessingDialogState extends State<_ProcessingDialog> {
       // First, chunk to get total
       final chunker = TextChunker(
         chunkSize: widget.chunkSize,
-        chunkOverlap: widget.chunkOverlap,
+        overlap: widget.chunkOverlap,
       );
       final chunks = chunker.chunk(text);
       _total = chunks.length;

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:path_provider/path_provider.dart';
 import '../services/log_service.dart';
@@ -83,7 +84,7 @@ class EmbeddingService {
         return true;
       }
 
-      await dispose();
+      await disposeAsync();
 
       final backend = preferredBackend ?? EmbeddingBackend.tflite;
       bool success = false;
@@ -197,6 +198,16 @@ class EmbeddingService {
   void dispose() {
     _tfliteHandler.close();
     _gemmaHandler.close();
+    _isInitialized = false;
+    _embeddingDimension = 0;
+    _currentModelPath = null;
+    _activeBackend = null;
+    _vocabPath = null;
+  }
+
+  Future<void> disposeAsync() async {
+    await _tfliteHandler.close();
+    await _gemmaHandler.close();
     _isInitialized = false;
     _embeddingDimension = 0;
     _currentModelPath = null;
