@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:flutter_markdown_latex/flutter_markdown_latex.dart';
 import 'package:markdown/markdown.dart' as md;
 import '../utils/theme.dart';
 
@@ -32,16 +31,9 @@ class MarkdownMessage extends StatelessWidget {
     return MarkdownBody(
       data: content,
       selectable: true,
-      markdownStyleSheet: _buildStyleSheet(context),
-      builders: {
-        'pre': _CodeBlockBuilder(),
-      },
+      styleSheet: _buildStyleSheet(context),
       extensionSet: md.ExtensionSet.gitHubFlavored,
-      inlineSyntaxes: [
-        LatexInlineSyntax(),
-      ],
       builders: {
-        'latex': LatexElementBuilder(),
         'pre': _CodeBlockBuilder(),
       },
     );
