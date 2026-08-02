@@ -4,6 +4,7 @@ import 'services/litert_service.dart';
 import 'services/storage_service.dart';
 import 'services/cache_service.dart';
 import 'services/ram_monitor_service.dart';
+import 'services/log_service.dart';
 import 'providers/chat_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/model_provider.dart';
@@ -38,6 +39,7 @@ class _RAIAppState extends State<RAIApp> {
             litertService: context.read<LiteRTService>(),
             storageService: context.read<StorageService>(),
             cacheService: context.read<CacheService>(),
+            logService: context.read<LogService>(),
           ),
         ),
         ChangeNotifierProvider(
@@ -47,6 +49,7 @@ class _RAIAppState extends State<RAIApp> {
             cacheService: context.read<CacheService>(),
             ragProvider: context.read<RagProvider>(),
             toolProvider: context.read<ToolProvider>(),
+            logService: context.read<LogService>(),
           ),
         ),
       ],
