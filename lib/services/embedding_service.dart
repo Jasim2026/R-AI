@@ -4,14 +4,12 @@ import 'package:archive/archive.dart';
 import 'package:path_provider/path_provider.dart';
 import '../services/log_service.dart';
 import '../services/tflite_embedding_handler.dart';
-import '../services/gemma_embedding_handler.dart';
 
-enum EmbeddingBackend { tflite, gemma }
+enum EmbeddingBackend { tflite }
 
 class EmbeddingService {
   final LogService _logService;
   final TfliteEmbeddingHandler _tfliteHandler;
-  final GemmaEmbeddingHandler _gemmaHandler;
 
   bool _isInitialized = false;
   int _embeddingDimension = 0;
@@ -21,8 +19,7 @@ class EmbeddingService {
 
   EmbeddingService({LogService? logService})
       : _logService = logService ?? LogService(),
-        _tfliteHandler = TfliteEmbeddingHandler(logService: logService),
-        _gemmaHandler = GemmaEmbeddingHandler(logService: logService);
+        _tfliteHandler = TfliteEmbeddingHandler(logService: logService);
 
   bool get isInitialized => _isInitialized;
   int get embeddingDimension => _embeddingDimension;
@@ -84,51 +81,19 @@ class EmbeddingService {
 
       await disposeAsync();
 
-      final backend = preferredBackend ?? EmbeddingBackend.tflite;
-      bool success = false;
-
-      if (backend == EmbeddingBackend.gemma) {
-        _logService.log('EmbeddingService', 'Trying Gemma backend...');
-        success = await _gemmaHandler.initialize(modelPath);
-        if (success) {
-          _activeBackend = EmbeddingBackend.gemma;
-        }
-      }
-
-      if (!success && backend == EmbeddingBackend.gemma) {
-        _logService.log('EmbeddingService', 'Gemma backend failed. Switch to TFLite in Settings.');
-        _activeBackend = null;
-        return false;
-      }
-
-      if (!success && backend == EmbeddingBackend.tflite) {
-        _logService.log('EmbeddingService', 'Trying TFLite backend...');
-        success = await _tfliteHandler.initialize(modelPath, vocabPath: vocabPath);
-        if (success) {
-          _activeBackend = EmbeddingBackend.tflite;
-        }
-      }
-
-      if (!success && backend == EmbeddingBackend.tflite) {
-        _logService.log('EmbeddingService', 'TFLite failed, trying Gemma as fallback...');
-        success = await _gemmaHandler.initialize(modelPath);
-        if (success) {
-          _activeBackend = EmbeddingBackend.gemma;
-          _logService.log('EmbeddingService', 'Fallback to Gemma succeeded');
-        }
-      }
-
-      _logService.log('EmbeddingService', 'Result: $success, backend: $_activeBackend');
-
-      _isInitialized = success;
+      _logService.log('EmbeddingService', 'Initializing TFLite backend...');
+      final success = await _tfliteHandler.initialize(modelPath, vocabPath: vocabPath);
 
       if (success) {
+        _activeBackend = EmbeddingBackend.tflite;
         _currentModelPath = modelPath;
         _vocabPath = vocabPath;
-        _embeddingDimension = _activeBackend == EmbeddingBackend.gemma
-            ? _gemmaHandler.embeddingDimension
-            : _tfliteHandler.embeddingDimension;
-        _logService.log('EmbeddingService', 'Dimension: $_embeddingDimension, backend: $_activeBackend');
+        _embeddingDimension = _tfliteHandler.embeddingDimension;
+        _isInitialized = true;
+        _logService.log('EmbeddingService', 'Dimension: $_embeddingDimension');
+      } else {
+        _activeBackend = null;
+        _logService.log('EmbeddingService', 'Initialization failed');
       }
 
       return _isInitialized;
@@ -144,13 +109,7 @@ class EmbeddingService {
     }
 
     try {
-      Float32List? result;
-      if (_activeBackend == EmbeddingBackend.gemma) {
-        result = await _gemmaHandler.embed(text);
-      } else {
-        result = await _tfliteHandler.embed(text);
-      }
-
+      final result = await _tfliteHandler.embed(text);
       if (result == null) {
         throw Exception('Embedding returned null');
       }
@@ -167,13 +126,7 @@ class EmbeddingService {
     }
 
     try {
-      List<Float32List?> results;
-      if (_activeBackend == EmbeddingBackend.gemma) {
-        results = await _gemmaHandler.embedBatch(texts);
-      } else {
-        results = await _tfliteHandler.embedBatch(texts);
-      }
-
+      final results = await _tfliteHandler.embedBatch(texts);
       return results
           .where((r) => r != null)
           .map((r) => r!.toList())
@@ -186,7 +139,6 @@ class EmbeddingService {
 
   void dispose() {
     _tfliteHandler.close();
-    _gemmaHandler.close();
     _isInitialized = false;
     _embeddingDimension = 0;
     _currentModelPath = null;
@@ -196,7 +148,6 @@ class EmbeddingService {
 
   Future<void> disposeAsync() async {
     await _tfliteHandler.close();
-    await _gemmaHandler.close();
     _isInitialized = false;
     _embeddingDimension = 0;
     _currentModelPath = null;

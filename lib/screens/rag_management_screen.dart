@@ -7,7 +7,6 @@ import '../providers/rag_provider.dart';
 import '../models/embedding_model.dart';
 import '../models/vector_db.dart';
 import '../services/cache_service.dart';
-import '../services/embedding_service.dart';
 import '../services/text_chunker.dart';
 import '../widgets/gradient_background.dart';
 import '../utils/theme.dart';
@@ -84,13 +83,11 @@ class _RagManagementScreenState extends State<RagManagementScreen>
 class _EmbedderTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Consumer2<EmbeddingModelProvider, CacheService>(
-      builder: (context, provider, cache, _) {
+    return Consumer<EmbeddingModelProvider>(
+      builder: (context, provider, _) {
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _buildBackendSelector(context, provider, cache),
-            const SizedBox(height: 16),
             _buildStatusCard(provider),
             const SizedBox(height: 16),
             _buildSectionHeader('IMPORTED MODELS'),
@@ -107,92 +104,6 @@ class _EmbedderTab extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-
-  Widget _buildBackendSelector(BuildContext context, EmbeddingModelProvider provider, CacheService cache) {
-    final currentBackend = cache.embeddingBackend;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceLight,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.divider, width: 0.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.settings_input_antenna, color: AppColors.primary, size: 18),
-              const SizedBox(width: 10),
-              Text(
-                'EMBEDDING BACKEND',
-                style: AppColors.font(
-                  color: AppColors.textHint,
-                  size: 11,
-                  weight: FontWeight.w700,
-                  letterSpacing: 1,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(
-                value: 'tflite',
-                label: Text('TFLite'),
-                icon: Icon(Icons.memory, size: 16),
-              ),
-              ButtonSegment(
-                value: 'gemma',
-                label: Text('Gemma'),
-                icon: Icon(Icons.auto_awesome, size: 16),
-              ),
-            ],
-            selected: {currentBackend},
-            onSelectionChanged: (selected) {
-              cache.embeddingBackend = selected.first;
-              provider.clearError();
-            },
-            style: ButtonStyle(
-              visualDensity: VisualDensity.compact,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            currentBackend == 'tflite'
-                ? 'TFLite: Any .tflite model + vocab.txt required'
-                : 'Gemma: EmbeddingGemma 300M only, no vocab needed',
-            style: AppColors.font(color: AppColors.textHint, size: 11),
-          ),
-          if (provider.isLoaded && provider.activeBackend != null) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.success.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.check_circle, color: AppColors.success, size: 14),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Active: ${provider.activeBackend == EmbeddingBackend.gemma ? "Gemma" : "TFLite"} '
-                    '(${provider.embeddingDimension}d)',
-                    style: AppColors.font(color: AppColors.success, size: 11),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
     );
   }
 

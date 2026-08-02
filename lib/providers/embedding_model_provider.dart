@@ -35,7 +35,7 @@ class EmbeddingModelProvider extends ChangeNotifier {
   int get embeddingDimension => _embeddingService.embeddingDimension;
   EmbeddingBackend? get activeBackend => _embeddingService.activeBackend;
 
-  String get preferredBackend => _cacheService.embeddingBackend;
+  String get preferredBackend => 'tflite';
 
   Future<void> loadModels() async {
     final json = _cacheService.embeddingModelsJson;
@@ -163,6 +163,14 @@ class EmbeddingModelProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // TFLite backend requires vocab.txt
+      if (model.vocabPath == null || model.vocabPath!.isEmpty) {
+        _error = 'TFLite backend requires vocab.txt. '
+            'Re-import with a zip containing both the .tflite model and vocab.txt.';
+        _logService.log('EmbeddingModelProvider', 'ERROR: ${_error}');
+        return false;
+      }
+
       _logService.log('EmbeddingModelProvider', 'Loading model: ${model.name} from ${model.path}');
 
       final file = File(model.path);
@@ -175,18 +183,9 @@ class EmbeddingModelProvider extends ChangeNotifier {
       final fileSize = await file.length();
       _logService.log('EmbeddingModelProvider', 'Model file size: $fileSize bytes');
 
-      // Determine preferred backend from settings
-      final backendStr = _cacheService.embeddingBackend;
-      final preferredBackend = backendStr == 'gemma'
-          ? EmbeddingBackend.gemma
-          : EmbeddingBackend.tflite;
-
-      _logService.log('EmbeddingModelProvider', 'Preferred backend: $preferredBackend');
-
       final success = await _embeddingService.initialize(
         model.path,
         vocabPath: model.vocabPath,
-        preferredBackend: preferredBackend,
       );
       _logService.log('EmbeddingModelProvider', 'Embedding service initialized: $success');
 
@@ -197,12 +196,10 @@ class EmbeddingModelProvider extends ChangeNotifier {
         await _cacheService.setSelectedEmbeddingModelId(model.id);
         await _cacheService.setEmbeddingModelLoaded(true);
         _logService.log('EmbeddingModelProvider',
-            'Model loaded successfully. Dimension: ${_embeddingService.embeddingDimension}, '
-            'Backend: ${_embeddingService.activeBackend}');
+            'Model loaded successfully. Dimension: ${_embeddingService.embeddingDimension}');
       } else {
         _error = 'Failed to load embedding model. '
-            'TFLite requires a matching vocab.txt. '
-            'Gemma requires an EmbeddingGemma 300M model.';
+            'Ensure the model file is valid and vocab.txt is present.';
         _logService.log('EmbeddingModelProvider', 'ERROR: ${_error}');
       }
 

@@ -18,7 +18,6 @@ class SettingsProvider extends ChangeNotifier {
   String get ragMode => _cacheService.ragMode;
   bool get toolCallingEnabled => _cacheService.toolCallingEnabled;
   String get uncertaintyKeywords => _cacheService.uncertaintyKeywords;
-  String get embeddingBackend => _cacheService.embeddingBackend;
 
   void setCachePrompts(bool value) {
     _cacheService.cachePrompts = value;
@@ -67,11 +66,6 @@ class SettingsProvider extends ChangeNotifier {
 
   void setToolCallingEnabled(bool value) {
     _cacheService.toolCallingEnabled = value;
-    notifyListeners();
-  }
-
-  void setEmbeddingBackend(String value) {
-    _cacheService.embeddingBackend = value;
     notifyListeners();
   }
 

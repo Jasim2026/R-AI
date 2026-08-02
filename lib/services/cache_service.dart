@@ -84,9 +84,6 @@ class CacheService {
   String? get toolsJson => _prefs.getString('tools_json');
   Future<void> setToolsJson(String value) => _prefs.setString('tools_json', value);
 
-  String get embeddingBackend => _prefs.getString('embedding_backend') ?? 'tflite';
-  set embeddingBackend(String value) => _prefs.setString('embedding_backend', value);
-
   String get uncertaintyKeywords =>
       _prefs.getString('uncertainty_keywords') ??
       'I am not sure,I don\'t know,I cannot confirm,uncertain,not certain,unable to determine';
