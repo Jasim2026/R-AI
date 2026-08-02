@@ -29,8 +29,6 @@ class EmbeddingService {
   String? get currentModelPath => _currentModelPath;
   EmbeddingBackend? get activeBackend => _activeBackend;
 
-  /// Extract a zip file containing .tflite + vocab.txt to internal storage.
-  /// Returns { 'model': '/path/to/model.tflite', 'vocab': '/path/to/vocab.txt' }
   static Future<Map<String, String>?> extractZip(String zipPath) async {
     try {
       final bytes = await File(zipPath).readAsBytes();
@@ -89,7 +87,6 @@ class EmbeddingService {
       final backend = preferredBackend ?? EmbeddingBackend.tflite;
       bool success = false;
 
-      // Try preferred backend first
       if (backend == EmbeddingBackend.gemma) {
         _logService.log('EmbeddingService', 'Trying Gemma backend...');
         success = await _gemmaHandler.initialize(modelPath);
@@ -99,9 +96,7 @@ class EmbeddingService {
       }
 
       if (!success && backend == EmbeddingBackend.gemma) {
-        // Gemma failed, don't fallback to tflite — user explicitly chose Gemma
-        _logService.log('EmbeddingService', 'Gemma backend failed. '
-            'Switch to TFLite backend in Settings if you have a compatible model + vocab.txt.');
+        _logService.log('EmbeddingService', 'Gemma backend failed. Switch to TFLite in Settings.');
         _activeBackend = null;
         return false;
       }
@@ -115,7 +110,6 @@ class EmbeddingService {
       }
 
       if (!success && backend == EmbeddingBackend.tflite) {
-        // TFLite failed, try Gemma as fallback
         _logService.log('EmbeddingService', 'TFLite failed, trying Gemma as fallback...');
         success = await _gemmaHandler.initialize(modelPath);
         if (success) {
@@ -124,7 +118,7 @@ class EmbeddingService {
         }
       }
 
-      _logService.log('EmbeddingService', 'Backend init result: $success, active: $_activeBackend');
+      _logService.log('EmbeddingService', 'Result: $success, backend: $_activeBackend');
 
       _isInitialized = success;
 
@@ -134,7 +128,7 @@ class EmbeddingService {
         _embeddingDimension = _activeBackend == EmbeddingBackend.gemma
             ? _gemmaHandler.embeddingDimension
             : _tfliteHandler.embeddingDimension;
-        _logService.log('EmbeddingService', 'Embedding dimension: $_embeddingDimension, backend: $_activeBackend');
+        _logService.log('EmbeddingService', 'Dimension: $_embeddingDimension, backend: $_activeBackend');
       }
 
       return _isInitialized;
@@ -142,11 +136,6 @@ class EmbeddingService {
       _logService.logError('EmbeddingService', 'Exception initializing embedding', e, stackTrace);
       throw Exception('Failed to initialize embedding: $e');
     }
-  }
-
-  Future<int> getDimension() async {
-    if (!_isInitialized) return 0;
-    return _embeddingDimension;
   }
 
   Future<List<double>> embed(String text) async {

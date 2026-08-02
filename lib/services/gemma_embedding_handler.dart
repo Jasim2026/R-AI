@@ -1,10 +1,11 @@
 import 'dart:math';
 import 'dart:typed_data';
-import 'package:flutter_gemma_embedder/flutter_gemma_embedder.dart';
+import 'package:flutter_gemma/flutter_gemma.dart';
+import 'package:flutter_gemma_embeddings/flutter_gemma_embeddings.dart';
 import 'log_service.dart';
 
 class GemmaEmbeddingHandler {
-  dynamic _model;
+  EmbeddingModel? _model;
   bool _isInitialized = false;
   int _embeddingDimension = 768;
 
@@ -22,19 +23,21 @@ class GemmaEmbeddingHandler {
 
       _logService.log('GemmaEmbeddingHandler', 'Initializing with model: $modelPath');
 
-      final embedder = FlutterGemmaEmbedder.instance;
-
-      _logService.log('GemmaEmbeddingHandler', 'Creating Gemma embedding model...');
-      _model = await embedder.createModel(
-        modelPath: modelPath,
-        modelType: EmbeddingModelType.embeddingGemma300M,
-        dimensions: 768,
-        taskType: EmbeddingTaskType.retrieval,
-        backend: PreferredBackend.gpu,
+      // Initialize the Gemma framework with embedding backend
+      _logService.log('GemmaEmbeddingHandler', 'Initializing FlutterGemma...');
+      await FlutterGemma.initialize(
+        embeddingBackends: [LiteRtEmbeddingBackend()],
       );
 
-      _logService.log('GemmaEmbeddingHandler', 'Initializing model...');
-      await _model!.initialize();
+      _logService.log('GemmaEmbeddingHandler', 'Creating embedding model...');
+      _model = await FlutterGemma.instance.createEmbeddingModel(
+        modelPath: modelPath,
+      );
+
+      if (_model == null) {
+        _logService.log('GemmaEmbeddingHandler', 'ERROR: Failed to create embedding model');
+        return false;
+      }
 
       _logService.log('GemmaEmbeddingHandler', 'Running test embedding...');
       final testResult = await embed('test');
