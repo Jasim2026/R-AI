@@ -4,6 +4,9 @@
 # Keep Kotlin coroutines (targeted)
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
+# Keep SendChannel interface methods (litertlm-android calls SendChannel.close$default)
+-keep class kotlinx.coroutines.channels.SendChannel { *; }
+-keep class kotlinx.coroutines.channels.SendChannel$DefaultImpls { *; }
 
 # Keep ObjectBox classes
 -keep class io.objectbox.** { *; }
