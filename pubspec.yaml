@@ -1,5 +1,5 @@
 name: R-AI
-description: A new Flutter project.
+description: On-device LLM inference app with NPU/GPU acceleration via LiteRT.
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -10,6 +10,12 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.6
+  provider: ^6.1.1
+  shared_preferences: ^2.2.2
+  path_provider: ^2.1.2
+  path: ^1.8.3
+  uuid: ^4.2.1
+  file_picker: ^6.1.1
 
 dev_dependencies:
   flutter_test:

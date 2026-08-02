@@ -1,45 +1,38 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'app.dart';
+import 'services/litert_service.dart';
+import 'services/storage_service.dart';
+import 'services/cache_service.dart';
 
-void main() {
-  runApp(const MyApp());
-}
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    systemNavigationBarColor: Color(0xFF12121A),
+    systemNavigationBarIconBrightness: Brightness.light,
+  ));
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'R-AI',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
-      home: const MyHomePage(title: 'R-AI Home'),
-    );
-  }
-}
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+  final storageService = await StorageService.getInstance();
+  final cacheService = await CacheService.getInstance();
+  final litertService = LiteRTService();
 
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
-      ),
-      body: const Center(
-        child: Text('R-AI is ready!'),
-      ),
-    );
-  }
+  runApp(
+    MultiProvider(
+      providers: [
+        Provider<LiteRTService>.value(value: litertService),
+        Provider<StorageService>.value(value: storageService),
+        Provider<CacheService>.value(value: cacheService),
+      ],
+      child: const RAIApp(),
+    ),
+  );
 }
