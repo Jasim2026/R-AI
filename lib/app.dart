@@ -10,27 +10,16 @@ import 'providers/rag_provider.dart';
 import 'screens/chat_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/model_import_screen.dart';
-import 'screens/permission_screen.dart';
 import 'utils/theme.dart';
 
 class RAIApp extends StatefulWidget {
-  final bool hasPermission;
-
-  const RAIApp({super.key, required this.hasPermission});
+  const RAIApp({super.key});
 
   @override
   State<RAIApp> createState() => _RAIAppState();
 }
 
 class _RAIAppState extends State<RAIApp> {
-  late bool _hasPermission;
-
-  @override
-  void initState() {
-    super.initState();
-    _hasPermission = widget.hasPermission;
-  }
-
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
@@ -60,11 +49,7 @@ class _RAIAppState extends State<RAIApp> {
         title: 'R-AI',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.darkTheme,
-        home: _hasPermission ? const MainShell() : PermissionScreen(
-          onPermissionGranted: () {
-            setState(() => _hasPermission = true);
-          },
-        ),
+        home: const MainShell(),
       ),
     );
   }

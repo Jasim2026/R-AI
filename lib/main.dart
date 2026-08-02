@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'app.dart';
-import 'screens/permission_screen.dart';
 import 'services/litert_service.dart';
 import 'services/storage_service.dart';
 import 'services/cache_service.dart';
@@ -24,8 +22,6 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  final hasPermission = await _checkStoragePermission();
-
   final storageService = await StorageService.getInstance();
   final cacheService = await CacheService.getInstance();
   final litertService = LiteRTService();
@@ -40,16 +36,7 @@ void main() async {
           create: (_) => RagProvider.lazy(),
         ),
       ],
-      child: RAIApp(hasPermission: hasPermission),
+      child: const RAIApp(),
     ),
   );
-}
-
-Future<bool> _checkStoragePermission() async {
-  var status = await Permission.storage.status;
-  if (status.isGranted) {
-    final manageStatus = await Permission.manageExternalStorage.status;
-    return manageStatus.isGranted || manageStatus.isLimited;
-  }
-  return false;
 }
