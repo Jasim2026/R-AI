@@ -1,13 +1,8 @@
 package com.example.r_ai
 
 import android.content.Context
-import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.text.textembedder.TextEmbedder
-import com.google.mediapipe.tasks.text.textembedder.TextEmbedderOptions
 import com.google.mediapipe.tasks.text.textembedder.TextEmbedderResult
-import android.graphics.Bitmap
-import android.graphics.Color
-import java.nio.FloatBuffer
 
 class EmbeddingHandler(private val context: Context) {
     private var textEmbedder: TextEmbedder? = null
@@ -15,7 +10,7 @@ class EmbeddingHandler(private val context: Context) {
 
     fun initialize(modelPath: String): Boolean {
         return try {
-            val options = TextEmbedderOptions.builder()
+            val options = TextEmbedder.TextEmbedderOptions.builder()
                 .setBaseOptions(
                     com.google.mediapipe.tasks.core.BaseOptions.builder()
                         .setModelAssetPath(modelPath)
@@ -35,8 +30,13 @@ class EmbeddingHandler(private val context: Context) {
         if (!isInitialized || textEmbedder == null) return null
 
         return try {
-            val result = textEmbedder!!.embed(text)
-            result.embeddingResult().embeddings()[0].floatEmbedding().toFloatArray()
+            val result: TextEmbedderResult = textEmbedder!!.embed(text)
+            val embedding = result.embedding().floatEmbedding()
+            val floatArray = FloatArray(embedding.size)
+            for (i in embedding.indices) {
+                floatArray[i] = embedding[i]
+            }
+            floatArray
         } catch (e: Exception) {
             null
         }

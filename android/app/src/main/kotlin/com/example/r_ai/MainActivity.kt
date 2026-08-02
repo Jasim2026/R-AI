@@ -79,7 +79,7 @@ class MainActivity : FlutterActivity() {
         scope.launch(Dispatchers.IO) {
             try {
                 val modelPath = args["modelPath"] as String
-                val handler = EmbeddingHandler applicationContext
+                val handler = EmbeddingHandler(applicationContext)
                 val success = handler.initialize(modelPath)
                 if (success) {
                     embeddingHandler = handler
