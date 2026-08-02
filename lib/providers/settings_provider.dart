@@ -12,7 +12,6 @@ class SettingsProvider extends ChangeNotifier {
   double get temperature => _cacheService.temperature;
   double get topP => _cacheService.topP;
   int get maxTokens => _cacheService.maxTokens;
-  bool get darkMode => _cacheService.darkMode;
   bool get streamingEnabled => _cacheService.streamingEnabled;
 
   Future<void> setCachePrompts(bool value) async {
@@ -37,11 +36,6 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> setMaxTokens(int value) async {
     _cacheService.maxTokens = value;
-    notifyListeners();
-  }
-
-  Future<void> setDarkMode(bool value) async {
-    _cacheService.darkMode = value;
     notifyListeners();
   }
 

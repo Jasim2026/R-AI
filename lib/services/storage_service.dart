@@ -1,16 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
 import '../models/chat_session.dart';
 import '../models/llm_model.dart';
-import '../utils/constants.dart';
 
 class StorageService {
   static StorageService? _instance;
   late final Directory _appDir;
-  late final Directory _modelsDir;
-  late final Directory _cacheDir;
 
   StorageService._();
 
@@ -24,23 +20,12 @@ class StorageService {
 
   Future<void> _init() async {
     _appDir = await getApplicationDocumentsDirectory();
-    _modelsDir = Directory(p.join(_appDir.path, AppConstants.modelsDir));
-    _cacheDir = Directory(p.join(_appDir.path, AppConstants.cacheDir));
-
-    if (!await _modelsDir.exists()) {
-      await _modelsDir.create(recursive: true);
-    }
-    if (!await _cacheDir.exists()) {
-      await _cacheDir.create(recursive: true);
-    }
   }
 
   String get appPath => _appDir.path;
-  String get modelsPath => _modelsDir.path;
-  String get cachePath => _cacheDir.path;
 
   Future<void> saveChatSession(ChatSession session) async {
-    final file = File(p.join(_appDir.path, '${session.id}.json'));
+    final file = File('${_appDir.path}/${session.id}.json');
     await file.writeAsString(jsonEncode(session.toMap()));
   }
 
@@ -57,9 +42,7 @@ class StorageService {
         final content = await file.readAsString();
         final map = jsonDecode(content) as Map<String, dynamic>;
         sessions.add(ChatSession.fromMap(map));
-      } catch (_) {
-        // Skip corrupted files
-      }
+      } catch (_) {}
     }
 
     sessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -67,20 +50,20 @@ class StorageService {
   }
 
   Future<void> deleteChatSession(String sessionId) async {
-    final file = File(p.join(_appDir.path, '$sessionId.json'));
+    final file = File('${_appDir.path}/$sessionId.json');
     if (await file.exists()) {
       await file.delete();
     }
   }
 
   Future<void> saveModels(List<LLMModel> models) async {
-    final file = File(p.join(_appDir.path, 'models.json'));
+    final file = File('${_appDir.path}/models.json');
     final json = models.map((m) => m.toMap()).toList();
     await file.writeAsString(jsonEncode(json));
   }
 
   Future<List<LLMModel>> loadModels() async {
-    final file = File(p.join(_appDir.path, 'models.json'));
+    final file = File('${_appDir.path}/models.json');
     if (!await file.exists()) return [];
 
     try {
@@ -92,40 +75,9 @@ class StorageService {
     }
   }
 
-  Future<void> saveSettings(Map<String, dynamic> settings) async {
-    final file = File(p.join(_appDir.path, 'settings.json'));
-    await file.writeAsString(jsonEncode(settings));
-  }
-
-  Future<Map<String, dynamic>> loadSettings() async {
-    final file = File(p.join(_appDir.path, 'settings.json'));
-    if (!await file.exists()) return {};
-
-    try {
-      final content = await file.readAsString();
-      return jsonDecode(content) as Map<String, dynamic>;
-    } catch (_) {
-      return {};
-    }
-  }
-
-  Future<String> copyModelToStorage(String sourcePath, String fileName) async {
-    final sourceFile = File(sourcePath);
-    final destFile = File(p.join(_modelsDir.path, fileName));
-    await sourceFile.copy(destFile.path);
-    return destFile.path;
-  }
-
   Future<void> deleteModelFile(String modelPath) async {
     final file = File(modelPath);
     if (await file.exists()) {
-      await file.delete();
-    }
-  }
-
-  Future<void> clearCache() async {
-    final files = _cacheDir.listSync().whereType<File>();
-    for (final file in files) {
       await file.delete();
     }
   }

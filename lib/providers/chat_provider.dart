@@ -4,7 +4,6 @@ import '../models/message.dart';
 import '../services/litert_service.dart';
 import '../services/cache_service.dart';
 import '../services/storage_service.dart';
-import '../utils/constants.dart';
 
 class ChatProvider extends ChangeNotifier {
   final LiteRTService _litertService;
@@ -191,30 +190,6 @@ class ChatProvider extends ChangeNotifier {
       _currentResponse = '';
       notifyListeners();
     }
-  }
-
-  String _buildPrompt() {
-    final buffer = StringBuffer();
-    buffer.writeln(_cacheService.systemPrompt);
-    buffer.writeln();
-
-    for (final message in _currentSession!.messages) {
-      if (message.error != null) continue;
-      switch (message.role) {
-        case MessageRole.user:
-          buffer.writeln('User: ${message.content}');
-          break;
-        case MessageRole.assistant:
-          buffer.writeln('Assistant: ${message.content}');
-          break;
-        case MessageRole.system:
-          buffer.writeln('System: ${message.content}');
-          break;
-      }
-    }
-
-    buffer.write('Assistant: ');
-    return buffer.toString();
   }
 
   Future<void> stopGeneration() async {

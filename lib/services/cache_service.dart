@@ -36,9 +36,6 @@ class CacheService {
   int get maxTokens => _prefs.getInt('max_tokens') ?? 4096;
   set maxTokens(int value) => _prefs.setInt('max_tokens', value);
 
-  bool get darkMode => _prefs.getBool('dark_mode') ?? true;
-  set darkMode(bool value) => _prefs.setBool('dark_mode', value);
-
   bool get streamingEnabled => _prefs.getBool('streaming_enabled') ?? true;
   set streamingEnabled(bool value) =>
       _prefs.setBool('streaming_enabled', value);
@@ -83,9 +80,5 @@ class CacheService {
     for (final key in keys) {
       await _prefs.remove(key);
     }
-  }
-
-  Future<void> clearAll() async {
-    await _prefs.clear();
   }
 }
