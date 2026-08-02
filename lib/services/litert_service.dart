@@ -26,7 +26,7 @@ class LiteRTService {
 
   Future<void> loadModel(LLMModel model) async {
     if (!_isInitialized) {
-      throw Exception('LiteRT not initialized. Call initialize() first.');
+      await initialize();
     }
 
     try {
@@ -45,9 +45,10 @@ class LiteRTService {
   Future<void> unloadModel() async {
     if (!_isModelLoaded) return;
 
+    _streamSubscription?.cancel();
+    _streamSubscription = null;
+
     try {
-      _streamSubscription?.cancel();
-      _streamSubscription = null;
       await _channel.invokeMethod('unloadModel');
       _currentModel = null;
       _isModelLoaded = false;
@@ -128,9 +129,10 @@ class LiteRTService {
   }
 
   Future<void> cancelGeneration() async {
+    _streamSubscription?.cancel();
+    _streamSubscription = null;
+
     try {
-      _streamSubscription?.cancel();
-      _streamSubscription = null;
       await _channel.invokeMethod('cancel');
     } on PlatformException {
       // Ignore cancellation errors

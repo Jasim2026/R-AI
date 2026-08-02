@@ -456,7 +456,17 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                           if (isSelected) {
                             await modelProvider.unloadModel();
                           } else {
-                            await modelProvider.selectModel(model);
+                            final success = await modelProvider.selectModel(model);
+                            if (!success && mounted && modelProvider.error != null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(modelProvider.error!),
+                                  backgroundColor: AppColors.error,
+                                  duration: const Duration(seconds: 4),
+                                ),
+                              );
+                              modelProvider.clearError();
+                            }
                           }
                         },
                         onDelete: () => _confirmDelete(

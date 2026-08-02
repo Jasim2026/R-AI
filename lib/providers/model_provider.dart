@@ -27,6 +27,11 @@ class ModelProvider extends ChangeNotifier {
   LLMModel? get selectedModel => _litertService.currentModel;
   bool get isModelLoaded => _litertService.isModelLoaded;
 
+  void clearError() {
+    _error = null;
+    notifyListeners();
+  }
+
   Future<void> loadModels() async {
     _isLoading = true;
     notifyListeners();
@@ -59,7 +64,7 @@ class ModelProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> selectModel(LLMModel model) async {
+  Future<bool> selectModel(LLMModel model) async {
     try {
       _isLoading = true;
       _error = null;
@@ -68,9 +73,11 @@ class ModelProvider extends ChangeNotifier {
       await _litertService.loadModel(model);
       _cacheService.lastModelId = model.id;
       notifyListeners();
+      return true;
     } catch (e) {
       _error = e.toString();
       notifyListeners();
+      return false;
     } finally {
       _isLoading = false;
       notifyListeners();
