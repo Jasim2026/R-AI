@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/message.dart';
 import '../utils/theme.dart';
+import 'markdown_message.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -112,18 +113,21 @@ class MessageBubble extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SelectableText(
-                        message.content,
-                        style: TextStyle(
-                          color: hasError
-                              ? _errorText
-                              : isUser
-                                  ? Colors.white
-                                  : AppColors.textPrimary,
-                          fontSize: 15,
-                          height: 1.55,
+                      if (hasError)
+                        SelectableText(
+                          message.content,
+                          style: const TextStyle(
+                            color: _errorText,
+                            fontSize: 15,
+                            height: 1.55,
+                          ),
+                        )
+                      else
+                        MarkdownMessage(
+                          content: message.content,
+                          isUser: isUser,
+                          isStreaming: message.isStreaming,
                         ),
-                      ),
                       if (isLast && message.isStreaming)
                         _buildStreamingIndicator(),
                     ],
