@@ -3,27 +3,41 @@ package com.example.r_ai
 import android.content.Context
 import com.google.mediapipe.tasks.text.textembedder.TextEmbedder
 import com.google.mediapipe.tasks.text.textembedder.TextEmbedderResult
+import java.io.File
 
 class EmbeddingHandler(private val context: Context) {
     private var textEmbedder: TextEmbedder? = null
     private var isInitialized = false
     private var embeddingDimension = 0
+    private var currentModelPath: String? = null
 
     fun initialize(modelPath: String): Boolean {
         return try {
             close()
 
+            val targetFile = File(context.filesDir, "embedding_model")
+            val sourceFile = File(modelPath)
+
+            if (!sourceFile.exists()) {
+                isInitialized = false
+                return false
+            }
+
+            if (sourceFile.absolutePath != currentModelPath || !targetFile.exists()) {
+                sourceFile.copyTo(targetFile, overwrite = true)
+                currentModelPath = sourceFile.absolutePath
+            }
+
             val options = TextEmbedder.TextEmbedderOptions.builder()
                 .setBaseOptions(
                     com.google.mediapipe.tasks.core.BaseOptions.builder()
-                        .setModelAssetPath(modelPath)
+                        .setModelPath(targetFile.absolutePath)
                         .build()
                 )
                 .build()
 
             textEmbedder = TextEmbedder.createFromOptions(context, options)
 
-            // Probe dimension with a test embedding
             val testResult = textEmbedder!!.embed("test")
             val floats = testResult.embeddingResult().embeddings()[0].floatEmbedding()
             embeddingDimension = floats.size
@@ -31,6 +45,7 @@ class EmbeddingHandler(private val context: Context) {
             isInitialized = true
             true
         } catch (e: Exception) {
+            e.printStackTrace()
             isInitialized = false
             embeddingDimension = 0
             false
@@ -49,6 +64,7 @@ class EmbeddingHandler(private val context: Context) {
             val floats = embedding.floatEmbedding()
             FloatArray(floats.size) { floats[it] }
         } catch (e: Exception) {
+            e.printStackTrace()
             null
         }
     }

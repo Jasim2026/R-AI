@@ -263,10 +263,28 @@ class _EmbedderTab extends StatelessWidget {
           children: [
             if (!isLoaded)
               TextButton(
-                onPressed: () async {
-                  await provider.loadModel(model);
-                },
-                child: Text('Load', style: AppColors.font(size: 12)),
+                onPressed: provider.isLoading
+                    ? null
+                    : () async {
+                        final success = await provider.loadModel(model);
+                        if (context.mounted && !success) {
+                          final error = provider.error ?? 'Failed to load embedding model';
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(error, style: AppColors.font(size: 12)),
+                              backgroundColor: AppColors.error,
+                              duration: const Duration(seconds: 4),
+                            ),
+                          );
+                        }
+                      },
+                child: provider.isLoading && provider.selectedModel?.id == model.id
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                      )
+                    : Text('Load', style: AppColors.font(size: 12)),
               ),
             IconButton(
               icon: Icon(Icons.delete_outline, size: 18),
