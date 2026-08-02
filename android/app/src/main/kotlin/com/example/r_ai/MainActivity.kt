@@ -7,14 +7,13 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Conversation
-import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
-import com.google.ai.edge.litertlm.Message
-import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.LogSeverity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancel
 
@@ -31,6 +30,8 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        Engine.setNativeMinLogSeverity(LogSeverity.WARNING)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -80,10 +81,12 @@ class MainActivity : FlutterActivity() {
                     cacheDir = cacheDir
                 )
 
-                engine = Engine(engineConfig)
-                engine!!.initialize()
+                val eng = Engine(engineConfig)
+                eng.initialize()
+                engine = eng
 
-                conversation = engine!!.createConversation()
+                val conv = eng.createConversation()
+                conversation = conv
 
                 scope.launch(Dispatchers.Main) {
                     result.success(true)
@@ -118,14 +121,8 @@ class MainActivity : FlutterActivity() {
         scope.launch(Dispatchers.IO) {
             try {
                 val content = args["content"] as String
-                val systemInstruction = args["systemInstruction"] as? String
-                val maxTokens = args["maxTokens"] as? Int ?: 4096
-                val temperature = args["temperature"] as? Double ?: 0.7
-                val topP = args["topP"] as? Double ?: 0.9
-                val topK = args["topK"] as? Int ?: 10
-
                 val response = conv.sendMessage(content)
-                val text = response.text ?: ""
+                val text = response.toString()
 
                 scope.launch(Dispatchers.Main) {
                     result.success(text)
@@ -153,8 +150,13 @@ class MainActivity : FlutterActivity() {
                 val content = args["content"] as String
 
                 conv.sendMessageAsync(content)
+                    .catch { e ->
+                        scope.launch(Dispatchers.Main) {
+                            eventSink?.success(mapOf("error" to (e.message ?: "Unknown error")))
+                        }
+                    }
                     .collect { message ->
-                        val text = message.text ?: ""
+                        val text = message.toString()
                         if (text.isNotEmpty()) {
                             scope.launch(Dispatchers.Main) {
                                 eventSink?.success(mapOf("text" to text))
