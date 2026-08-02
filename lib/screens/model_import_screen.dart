@@ -553,12 +553,48 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
               itemCount: modelProvider.models.length,
               itemBuilder: (context, index) {
                 final model = modelProvider.models[index];
+                final isLoaded = model.id == modelProvider.selectedModel?.id && modelProvider.isModelLoaded;
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: ModelCard(
                     model: model,
                     isSelected: model.id == modelProvider.selectedModel?.id,
-                    onTap: () => modelProvider.selectModel(model),
+                    isLoaded: isLoaded,
+                    onTap: () async {
+                      if (isLoaded) {
+                        // Offload with consent
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            backgroundColor: AppColors.surface,
+                            title: Text('Unload Model?'),
+                            content: Text(
+                              'This will unload ${model.name} from memory. '
+                              'You\'ll need to load it again before chatting.',
+                              style: AppColors.font(size: 13),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: Text('Cancel'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, true),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: AppColors.warning,
+                                ),
+                                child: Text('Unload'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed == true && context.mounted) {
+                          await modelProvider.unloadModel();
+                        }
+                      } else {
+                        await modelProvider.selectModel(model);
+                      }
+                    },
                     onDelete: () => modelProvider.removeModel(model.id),
                   ),
                 );

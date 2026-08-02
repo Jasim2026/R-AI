@@ -5,6 +5,7 @@ import '../utils/theme.dart';
 class ModelCard extends StatelessWidget {
   final LLMModel model;
   final bool isSelected;
+  final bool isLoaded;
   final VoidCallback? onTap;
   final VoidCallback? onDelete;
   final VoidCallback? onSetDefault;
@@ -13,6 +14,7 @@ class ModelCard extends StatelessWidget {
     super.key,
     required this.model,
     this.isSelected = false,
+    this.isLoaded = false,
     this.onTap,
     this.onDelete,
     this.onSetDefault,
@@ -100,11 +102,11 @@ class ModelCard extends StatelessWidget {
                 ),
               ),
               if (isSelected)
-                const Padding(
-                  padding: EdgeInsets.only(left: 6),
+                Padding(
+                  padding: const EdgeInsets.only(left: 6),
                   child: Icon(
-                    Icons.check_circle,
-                    color: AppColors.primary,
+                    isLoaded ? Icons.power_settings_new : Icons.check_circle,
+                    color: isLoaded ? AppColors.success : AppColors.primary,
                     size: 18,
                   ),
                 ),
