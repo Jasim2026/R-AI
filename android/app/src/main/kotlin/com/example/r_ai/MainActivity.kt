@@ -69,36 +69,23 @@ class MainActivity : FlutterActivity() {
                 val modelPath = args["modelPath"] as String
                 val supportedBackends = mutableListOf<String>()
 
-                // Test GPU backend
-                try {
-                    val config = EngineConfig(modelPath = modelPath, backend = Backend.GPU())
-                    val eng = Engine(config)
-                    eng.initialize()
-                    eng.close()
-                    supportedBackends.add("gpu")
-                } catch (_: Exception) {}
+                // Probe each backend sequentially, closing each engine before trying the next
+                for (pair in listOf(
+                    "gpu" to Backend.GPU(),
+                    "npu" to Backend.NPU(),
+                    "cpu" to Backend.CPU()
+                )) {
+                    val (name, backend) = pair
+                    try {
+                        val config = EngineConfig(modelPath = modelPath, backend = backend)
+                        val eng = Engine(config)
+                        eng.initialize()
+                        eng.close()
+                        supportedBackends.add(name)
+                    } catch (_: Exception) {}
+                }
 
-                // Test NPU backend
-                try {
-                    val config = EngineConfig(modelPath = modelPath, backend = Backend.NPU())
-                    val eng = Engine(config)
-                    eng.initialize()
-                    eng.close()
-                    supportedBackends.add("npu")
-                } catch (_: Exception) {}
-
-                // Test CPU backend
-                try {
-                    val config = EngineConfig(modelPath = modelPath, backend = Backend.CPU())
-                    val eng = Engine(config)
-                    eng.initialize()
-                    eng.close()
-                    supportedBackends.add("cpu")
-                } catch (_: Exception) {}
-
-                val metadata = mapOf(
-                    "supportedBackends" to supportedBackends
-                )
+                val metadata = mapOf("supportedBackends" to supportedBackends)
 
                 scope.launch(Dispatchers.Main) {
                     result.success(metadata)
@@ -114,8 +101,14 @@ class MainActivity : FlutterActivity() {
     private fun handleLoadModel(args: Map<*, *>, result: MethodChannel.Result) {
         scope.launch(Dispatchers.IO) {
             try {
+                // Close any existing engine first
+                conversation?.close()
+                conversation = null
+                engine?.close()
+                engine = null
+
                 val modelPath = args["modelPath"] as String
-                val backendName = args["backend"] as? String ?: "GPU"
+                val backendName = args["backend"] as? String ?: "gpu"
                 val cacheDir = args["cacheDir"] as? String
 
                 val backend = when (backendName) {
@@ -150,6 +143,8 @@ class MainActivity : FlutterActivity() {
 
     private fun handleUnloadModel(result: MethodChannel.Result) {
         try {
+            generationJob?.cancel()
+            generationJob = null
             conversation?.close()
             conversation = null
             engine?.close()
@@ -167,7 +162,7 @@ class MainActivity : FlutterActivity() {
             return
         }
 
-        scope.launch(Dispatchers.IO) {
+        scope.launch(Dispatchers.Default) {
             try {
                 val content = args["content"] as String
                 val response = conv.sendMessage(content)
@@ -191,10 +186,14 @@ class MainActivity : FlutterActivity() {
             return
         }
 
+        // Cancel any previous generation first
+        generationJob?.cancel()
+        generationJob = null
+
+        // Return success immediately, stream tokens via EventChannel
         result.success(true)
 
-        generationJob?.cancel()
-        generationJob = scope.launch(Dispatchers.IO) {
+        generationJob = scope.launch(Dispatchers.Default) {
             try {
                 val content = args["content"] as String
 
@@ -213,12 +212,13 @@ class MainActivity : FlutterActivity() {
                         }
                     }
 
+                // Signal completion
                 scope.launch(Dispatchers.Main) {
                     eventSink?.success(mapOf("done" to true))
                 }
             } catch (e: Exception) {
                 scope.launch(Dispatchers.Main) {
-                    eventSink?.success(mapOf("error" to e.message))
+                    eventSink?.success(mapOf("error" to (e.message ?: "Unknown error")))
                 }
             }
         }
@@ -231,6 +231,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        generationJob?.cancel()
         scope.cancel()
         conversation?.close()
         engine?.close()

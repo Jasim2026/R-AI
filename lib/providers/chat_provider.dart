@@ -101,11 +101,16 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final prompt = _buildPrompt();
+      // Get just the last user message content — the native Conversation
+      // handles chat history internally
+      final lastUserMsg = _currentSession!.messages
+          .where((m) => m.role == MessageRole.user)
+          .lastOrNull;
+      final userContent = lastUserMsg?.content ?? '';
 
       if (_cacheService.streamingEnabled) {
         final stream = _litertService.generateStream(
-          prompt: prompt,
+          prompt: userContent,
           systemInstruction: _cacheService.systemPrompt,
           maxTokens: _cacheService.maxTokens,
           temperature: _cacheService.temperature,
@@ -135,7 +140,7 @@ class ChatProvider extends ChangeNotifier {
         }
       } else {
         _currentResponse = await _litertService.generate(
-          prompt: prompt,
+          prompt: userContent,
           systemInstruction: _cacheService.systemPrompt,
           maxTokens: _cacheService.maxTokens,
           temperature: _cacheService.temperature,
