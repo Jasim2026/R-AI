@@ -43,8 +43,7 @@ android {
     }
 
     packagingOptions {
-        pickFirst 'lib/arm64-v8a/libtensorflowlite_jni.so'
-        pickFirst 'lib/armeabi-v7a/libtensorflowlite_jni.so'
+        pickFirst 'lib/*/libtensorflowlite_jni.so'
     }
 
 }
