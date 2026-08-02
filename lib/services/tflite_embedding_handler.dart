@@ -88,10 +88,11 @@ class TfliteEmbeddingHandler {
         final firstShape = inputTensors.first.shape;
         if (firstShape.length >= 2 && firstShape[0] > 1) {
           _logService.log('TfliteEmbeddingHandler', 'Model batch size ${firstShape[0]} > 1, resizing inputs to batch 1...');
-          for (var tensor in inputTensors) {
+          for (var i = 0; i < inputTensors.length; i++) {
+            final tensor = inputTensors[i];
             final newShape = [1] + tensor.shape.sublist(1);
             _logService.log('TfliteEmbeddingHandler', '  Resizing ${tensor.name}: ${tensor.shape} -> $newShape');
-            _interpreter!.resizeInputTensor(tensor, newShape);
+            _interpreter!.resizeInputTensor(i, newShape);
           }
           _logService.log('TfliteEmbeddingHandler', 'Calling allocateTensors() after resize...');
           _interpreter!.allocateTensors();
