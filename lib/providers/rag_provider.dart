@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../models/vector_db.dart';
 import '../models/vector_chunk.dart';
-import '../services/embedding_service.dart';
 import '../services/vector_db_service.dart';
 import '../services/text_chunker.dart';
 import '../providers/embedding_model_provider.dart';

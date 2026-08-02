@@ -946,11 +946,35 @@ class _ProcessingDialogState extends State<_ProcessingDialog> {
   }
 }
 
-class _RagSettingsTab extends StatelessWidget {
+class _RagSettingsTab extends StatefulWidget {
+  @override
+  State<_RagSettingsTab> createState() => _RagSettingsTabState();
+}
+
+class _RagSettingsTabState extends State<_RagSettingsTab> {
+  String _ragMode = 'pre_generation';
+  int _chunkSize = 500;
+  int _chunkOverlap = 50;
+  int _ragTopK = 5;
+  bool _loaded = false;
+
+  void _loadSettings(CacheService cache) {
+    if (!_loaded) {
+      _ragMode = cache.ragMode;
+      _chunkSize = cache.chunkSize;
+      _chunkOverlap = cache.chunkOverlap;
+      _ragTopK = cache.ragTopK;
+      _loaded = true;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Consumer2<CacheService, RagProvider>(
-      builder: (context, cache, rag, _) {
+    return Consumer<RagProvider>(
+      builder: (context, rag, _) {
+        final cache = context.read<CacheService>();
+        _loadSettings(cache);
+
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -959,11 +983,11 @@ class _RagSettingsTab extends StatelessWidget {
             _buildSettingTile(
               icon: Icons.swap_horiz_rounded,
               title: 'Mode',
-              subtitle: cache.ragMode == 'pre_generation'
+              subtitle: _ragMode == 'pre_generation'
                   ? 'Pre-generation'
                   : 'Post-generation',
               child: DropdownButton<String>(
-                value: cache.ragMode,
+                value: _ragMode,
                 dropdownColor: AppColors.surface,
                 style: AppColors.font(color: AppColors.textPrimary),
                 items: const [
@@ -977,7 +1001,10 @@ class _RagSettingsTab extends StatelessWidget {
                   ),
                 ],
                 onChanged: (v) {
-                  if (v != null) cache.ragMode = v;
+                  if (v != null) {
+                    setState(() => _ragMode = v);
+                    cache.ragMode = v;
+                  }
                 },
               ),
             ),
@@ -987,25 +1014,31 @@ class _RagSettingsTab extends StatelessWidget {
             _buildSettingTile(
               icon: Icons.straighten,
               title: 'Chunk Size',
-              subtitle: '${cache.chunkSize} characters',
+              subtitle: '$_chunkSize characters',
               child: Slider(
-                value: cache.chunkSize.toDouble(),
+                value: _chunkSize.toDouble(),
                 min: 100,
                 max: 2000,
                 divisions: 19,
-                onChanged: (v) => cache.chunkSize = v.round(),
+                onChanged: (v) {
+                  setState(() => _chunkSize = v.round());
+                  cache.chunkSize = v.round();
+                },
               ),
             ),
             _buildSettingTile(
               icon: Icons.view_agenda_outlined,
               title: 'Chunk Overlap',
-              subtitle: '${cache.chunkOverlap} characters',
+              subtitle: '$_chunkOverlap characters',
               child: Slider(
-                value: cache.chunkOverlap.toDouble(),
+                value: _chunkOverlap.toDouble(),
                 min: 0,
                 max: 200,
                 divisions: 20,
-                onChanged: (v) => cache.chunkOverlap = v.round(),
+                onChanged: (v) {
+                  setState(() => _chunkOverlap = v.round());
+                  cache.chunkOverlap = v.round();
+                },
               ),
             ),
             const SizedBox(height: 16),
@@ -1014,16 +1047,19 @@ class _RagSettingsTab extends StatelessWidget {
             _buildSettingTile(
               icon: Icons.format_list_numbered_rounded,
               title: 'Top-K Results',
-              subtitle: '${cache.ragTopK} results',
+              subtitle: '$_ragTopK results',
               child: DropdownButton<int>(
-                value: cache.ragTopK,
+                value: _ragTopK,
                 dropdownColor: AppColors.surface,
                 style: AppColors.font(color: AppColors.textPrimary),
                 items: [3, 5, 10, 15, 20].map((k) {
                   return DropdownMenuItem(value: k, child: Text('$k'));
                 }).toList(),
                 onChanged: (v) {
-                  if (v != null) cache.ragTopK = v;
+                  if (v != null) {
+                    setState(() => _ragTopK = v);
+                    cache.ragTopK = v;
+                  }
                 },
               ),
             ),

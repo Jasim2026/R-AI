@@ -195,8 +195,18 @@ class EmbeddingModelProvider extends ChangeNotifier {
       if (success) {
         await _cacheService.setSelectedEmbeddingModelId(model.id);
         await _cacheService.setEmbeddingModelLoaded(true);
+
+        final actualDim = _embeddingService.embeddingDimension;
+        if (actualDim > 0 && actualDim != model.dimensions) {
+          final idx = _models.indexWhere((m) => m.id == model.id);
+          if (idx >= 0) {
+            _models[idx] = model.copyWith(dimensions: actualDim);
+            await _saveModels();
+          }
+        }
+
         _logService.log('EmbeddingModelProvider',
-            'Model loaded successfully. Dimension: ${_embeddingService.embeddingDimension}');
+            'Model loaded successfully. Dimension: $actualDim');
       } else {
         _error = 'Failed to load embedding model. '
             'Ensure the model file is valid and vocab.txt is present.';
