@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/chat_provider.dart';
 import '../providers/model_provider.dart';
+import '../providers/rag_provider.dart';
 import '../providers/session_provider.dart';
 import '../services/ram_monitor_service.dart';
 import '../widgets/message_bubble.dart';
@@ -11,6 +12,7 @@ import '../widgets/gradient_background.dart';
 import '../widgets/ram_usage_indicator.dart';
 import '../utils/theme.dart';
 import '../screens/session_manager_screen.dart';
+import 'vector_db_detail_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -101,6 +103,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 },
               ),
             ),
+            _buildDatabasePickerBar(),
             const ChatInput(),
           ],
         ),
@@ -242,6 +245,131 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Icon(icon, color: AppColors.textSecondary, size: 20),
         ),
       ),
+    );
+  }
+
+  Widget _buildDatabasePickerBar() {
+    return Consumer2<ChatProvider, RagProvider>(
+      builder: (context, chatProvider, ragProvider, _) {
+        if (ragProvider.dbs.isEmpty) return const SizedBox.shrink();
+        final selectedDbs = chatProvider.selectedRagDbNames;
+        final allSelected = selectedDbs.isEmpty;
+        return Container(
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: const BoxDecoration(
+            color: AppColors.surfaceDark,
+            border: Border(
+              top: BorderSide(color: AppColors.divider, width: 0.5),
+            ),
+          ),
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(right: 8, top: 8, bottom: 8),
+                child: GestureDetector(
+                  onTap: () {
+                    chatProvider.setSelectedRagDbs([]);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: allSelected
+                          ? AppColors.accent.withOpacity(0.2)
+                          : AppColors.surfaceLight,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: allSelected ? AppColors.accent : AppColors.divider,
+                        width: 0.5,
+                      ),
+                    ),
+                    child: Text(
+                      'All DBs',
+                      style: AppColors.font(
+                        size: 11,
+                        color: allSelected ? AppColors.accent : AppColors.textHint,
+                        weight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              ...ragProvider.dbs.map((db) {
+                final isSelected = selectedDbs.isEmpty || selectedDbs.contains(db.name);
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8, top: 8, bottom: 8),
+                  child: GestureDetector(
+                    onTap: () {
+                      if (selectedDbs.isEmpty) {
+                        // Switch from "all" to specific selection
+                        chatProvider.setSelectedRagDbs([db.name]);
+                      } else if (selectedDbs.contains(db.name)) {
+                        final newSel = List<String>.from(selectedDbs)..remove(db.name);
+                        chatProvider.setSelectedRagDbs(newSel);
+                      } else {
+                        final newSel = List<String>.from(selectedDbs)..add(db.name);
+                        chatProvider.setSelectedRagDbs(newSel);
+                      }
+                    },
+                    onLongPress: () {
+                      // Show DB details
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => VectorDbDetailScreen(db: db),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? AppColors.primary.withOpacity(0.2)
+                            : AppColors.surfaceLight,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected ? AppColors.primary : AppColors.divider,
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.storage_rounded,
+                            size: 12,
+                            color: isSelected ? AppColors.primary : AppColors.textHint,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            db.displayName,
+                            style: AppColors.font(
+                              size: 11,
+                              color: isSelected ? AppColors.primary : AppColors.textHint,
+                              weight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${db.chunkCount}',
+                            style: AppColors.font(
+                              size: 10,
+                              color: isSelected
+                                  ? AppColors.primary.withOpacity(0.7)
+                                  : AppColors.textHint.withOpacity(0.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
+        );
+      },
     );
   }
 

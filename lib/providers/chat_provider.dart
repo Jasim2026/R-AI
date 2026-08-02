@@ -58,6 +58,13 @@ class ChatProvider extends ChangeNotifier {
   GenerationStatus _generationStatus = GenerationStatus.idle;
   int _tokenCount = 0;
 
+  // Last RAG inference info (persistent)
+  String? _lastRagChunkIds;
+  String? _lastRagDbNames;
+
+  // Per-session selected DB names
+  List<String> _selectedRagDbNames = [];
+
   ChatProvider({
     required LiteRTService litertService,
     required StorageService storageService,
@@ -70,7 +77,12 @@ class ChatProvider extends ChangeNotifier {
         _cacheService = cacheService,
         _ragProvider = ragProvider,
         _toolProvider = toolProvider,
-        _logService = logService ?? LogService();
+        _logService = logService ?? LogService() {
+    // Load persistent RAG chunk info
+    _lastRagChunkIds = _cacheService.lastRagChunkIds;
+    _lastRagDbNames = _cacheService.lastRagDbNames;
+    _selectedRagDbNames = _cacheService.selectedRagDbList;
+  }
 
   ChatSession? get currentSession => _currentSession;
   List<ChatSession> get sessions => _sessions;
@@ -82,8 +94,17 @@ class ChatProvider extends ChangeNotifier {
   String get ragStatus => _ragStatus;
   GenerationStatus get generationStatus => _generationStatus;
   int get tokenCount => _tokenCount;
+  String? get lastRagChunkIds => _lastRagChunkIds;
+  String? get lastRagDbNames => _lastRagDbNames;
+  List<String> get selectedRagDbNames => List.unmodifiable(_selectedRagDbNames);
   RagProvider? get ragProvider => _ragProvider;
   ToolProvider? get toolProvider => _toolProvider;
+
+  void setSelectedRagDbs(List<String> names) {
+    _selectedRagDbNames = List.from(names);
+    _cacheService.selectedRagDbs = names.join(',');
+    notifyListeners();
+  }
 
   InferenceBlockReason checkInferencePrerequisites() {
     final ragEnabled = _cacheService.ragEnabled;
@@ -369,7 +390,9 @@ class ChatProvider extends ChangeNotifier {
       _logService.log('ChatProvider', 'RAG: enabled=$ragEnabled, mode=$ragMode');
 
       String promptToSend = userContent;
-      String systemInstruction = _cacheService.systemPrompt;
+      String systemInstruction = ragEnabled
+          ? _cacheService.ragOnSystemPrompt
+          : _cacheService.ragOffSystemPrompt;
       List<RagContext>? ragContextsUsed;
 
       _logService.log('ChatProvider', 'System prompt: "${systemInstruction.length > 100 ? systemInstruction.substring(0, 100) + "..." : systemInstruction}"');
@@ -399,6 +422,12 @@ class ChatProvider extends ChangeNotifier {
           final results = await _ragProvider!.search(
             query: userContent,
             topK: topK,
+            dbPaths: _selectedRagDbNames.isEmpty
+                ? null
+                : _ragProvider!.dbs
+                    .where((d) => _selectedRagDbNames.contains(d.name))
+                    .map((d) => d.filePath)
+                    .toList(),
           );
 
           _logService.log('ChatProvider', 'RAG search returned ${results.length} results');
@@ -436,7 +465,7 @@ class ChatProvider extends ChangeNotifier {
             promptToSend = _ragProvider!.buildRagPrompt(
               userContent,
               results,
-              _cacheService.systemPrompt,
+              _cacheService.ragOnSystemPrompt,
             );
             systemInstruction = '';
             _usedRag = true;
@@ -481,6 +510,12 @@ class ChatProvider extends ChangeNotifier {
             final results = await _ragProvider!.search(
               query: userContent,
               topK: topK,
+              dbPaths: _selectedRagDbNames.isEmpty
+                  ? null
+                  : _ragProvider!.dbs
+                      .where((d) => _selectedRagDbNames.contains(d.name))
+                      .map((d) => d.filePath)
+                      .toList(),
             );
 
             _logService.log('ChatProvider', 'RAG search returned ${results.length} results for re-generation');
@@ -496,7 +531,7 @@ class ChatProvider extends ChangeNotifier {
               final ragPrompt = _ragProvider!.buildRagPrompt(
                 userContent,
                 results,
-                _cacheService.systemPrompt,
+                _cacheService.ragOnSystemPrompt,
               );
 
               // Replace streaming message with fresh generation
@@ -530,6 +565,14 @@ class ChatProvider extends ChangeNotifier {
           final content = _currentSession!.messages.last.content;
           _currentSession!.messages.last = _currentSession!.messages.last
               .copyWith(content: content, isStreaming: false, ragContexts: ragContextsUsed);
+        }
+
+        // Persist last RAG chunk IDs for toolbar display
+        if (ragContextsUsed != null && ragContextsUsed.isNotEmpty) {
+          _lastRagChunkIds = ragContextsUsed.map((c) => '${c.dbName}#${c.chunkId}').join(', ');
+          _lastRagDbNames = ragContextsUsed.map((c) => c.dbName).toSet().join(', ');
+          _cacheService.lastRagChunkIds = _lastRagChunkIds;
+          _cacheService.lastRagDbNames = _lastRagDbNames;
         }
 
         // Tool calling

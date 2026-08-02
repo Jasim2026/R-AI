@@ -315,10 +315,11 @@ class _VectorDbDetailScreenState extends State<VectorDbDetailScreen> {
               final text = controller.text.trim();
               if (text.isEmpty) return;
 
-              Navigator.pop(context);
-
+              // Read providers BEFORE popping dialog
               final provider = context.read<RagProvider>();
               final cacheService = context.read<CacheService>();
+
+              Navigator.pop(context);
 
               await provider.processText(
                 dbPath: widget.db.filePath,
@@ -328,11 +329,13 @@ class _VectorDbDetailScreenState extends State<VectorDbDetailScreen> {
               );
 
               // Reload chunks
-              setState(() {
-                _chunks.clear();
-                _loading = true;
-              });
-              await _loadChunks();
+              if (mounted) {
+                setState(() {
+                  _chunks.clear();
+                  _loading = true;
+                });
+                await _loadChunks();
+              }
             },
             child: Text('Process'),
           ),

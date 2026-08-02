@@ -27,6 +27,19 @@ class CacheService {
       'You are a helpful, harmless, and honest AI assistant.';
   set systemPrompt(String value) => _prefs.setString('system_prompt', value);
 
+  String get ragOnSystemPrompt =>
+      _prefs.getString('rag_on_system_prompt') ??
+      'You are a helpful AI assistant. Answer the question STRICTLY using ONLY the provided context. '
+      'If the context does not contain enough information to answer, say "I don\'t have enough information in the provided context to answer this question." '
+      'Do not use any outside knowledge. Do not make assumptions. '
+      'Base your answer entirely on the context provided below.';
+  set ragOnSystemPrompt(String value) => _prefs.setString('rag_on_system_prompt', value);
+
+  String get ragOffSystemPrompt =>
+      _prefs.getString('rag_off_system_prompt') ??
+      'You are a helpful, harmless, and honest AI assistant. Answer based on your general knowledge.';
+  set ragOffSystemPrompt(String value) => _prefs.setString('rag_off_system_prompt', value);
+
   double get temperature => _prefs.getDouble('temperature') ?? 0.7;
   set temperature(double value) => _prefs.setDouble('temperature', value);
 
@@ -80,6 +93,35 @@ class CacheService {
 
   bool get toolCallingEnabled => _prefs.getBool('tool_calling_enabled') ?? false;
   set toolCallingEnabled(bool value) => _prefs.setBool('tool_calling_enabled', value);
+
+  // Last RAG inference chunk tracking
+  String? get lastRagChunkIds => _prefs.getString('last_rag_chunk_ids');
+  set lastRagChunkIds(String? value) {
+    if (value != null) {
+      _prefs.setString('last_rag_chunk_ids', value);
+    } else {
+      _prefs.remove('last_rag_chunk_ids');
+    }
+  }
+
+  String? get lastRagDbNames => _prefs.getString('last_rag_db_names');
+  set lastRagDbNames(String? value) {
+    if (value != null) {
+      _prefs.setString('last_rag_db_names', value);
+    } else {
+      _prefs.remove('last_rag_db_names');
+    }
+  }
+
+  // Per-session selected databases (comma-separated names, empty = all)
+  String get selectedRagDbs => _prefs.getString('selected_rag_dbs') ?? '';
+  set selectedRagDbs(String value) => _prefs.setString('selected_rag_dbs', value);
+
+  List<String> get selectedRagDbList {
+    final raw = selectedRagDbs;
+    if (raw.isEmpty) return [];
+    return raw.split(',').where((s) => s.isNotEmpty).toList();
+  }
 
   String? get toolsJson => _prefs.getString('tools_json');
   Future<void> setToolsJson(String value) => _prefs.setString('tools_json', value);

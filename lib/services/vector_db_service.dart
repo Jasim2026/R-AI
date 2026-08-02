@@ -495,6 +495,62 @@ class VectorDbService {
     final denom = sqrt(normA) * sqrt(normB);
     return denom == 0 ? 0 : dot / denom;
   }
+
+  // Export a .db file to a user-accessible location
+  static Future<String?> exportDb(String name, String destPath) async {
+    _logService.log('VectorDbService', 'Exporting DB: $name to $destPath');
+    try {
+      final srcPath = await _dbPath(name);
+      final srcFile = File(srcPath);
+      if (!await srcFile.exists()) {
+        _logService.log('VectorDbService', 'ERROR: Source DB not found: $srcPath');
+        return null;
+      }
+      final destFile = File(destPath);
+      await srcFile.copy(destPath);
+      final size = await destFile.length();
+      _logService.log('VectorDbService', 'Exported: $destPath ($size bytes)');
+      return destPath;
+    } catch (e) {
+      _logService.logError('VectorDbService', 'Failed to export DB', e, null);
+      return null;
+    }
+  }
+
+  // Import a .db file from user selection
+  static Future<VectorDb?> importDb(String srcPath, {String? name}) async {
+    _logService.log('VectorDbService', 'Importing DB from: $srcPath');
+    try {
+      final srcFile = File(srcPath);
+      if (!await srcFile.exists()) {
+        _logService.log('VectorDbService', 'ERROR: Source file not found: $srcPath');
+        return null;
+      }
+
+      // Validate magic number
+      final bytes = await srcFile.readAsBytes();
+      if (bytes.length < _headerSize) {
+        _logService.log('VectorDbService', 'ERROR: File too small: ${bytes.length} bytes');
+        return null;
+      }
+      final magic = ByteData.sublistView(bytes).getUint32(0, Endian.little);
+      if (magic != _magic) {
+        _logService.log('VectorDbService', 'ERROR: Invalid DB file (bad magic)');
+        return null;
+      }
+
+      final dbName = name ?? srcPath.split('/').last.replaceAll('.db', '');
+      final destPath = await _dbPath(dbName);
+      await srcFile.copy(destPath);
+
+      final db = await openDb(dbName);
+      _logService.log('VectorDbService', 'Imported DB: $dbName (${db?.chunkCount ?? 0} chunks)');
+      return db;
+    } catch (e) {
+      _logService.logError('VectorDbService', 'Failed to import DB', e, null);
+      return null;
+    }
+  }
 }
 
 class VectorSearchResult {

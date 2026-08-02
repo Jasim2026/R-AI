@@ -7,6 +7,7 @@ import '../providers/rag_provider.dart';
 import '../models/embedding_model.dart';
 import '../models/vector_db.dart';
 import '../services/cache_service.dart';
+import '../services/vector_db_service.dart';
 import '../widgets/gradient_background.dart';
 import '../utils/theme.dart';
 import 'vector_db_detail_screen.dart';
@@ -451,6 +452,12 @@ class _DocumentsTab extends StatelessWidget {
               _buildImportDocumentButton(context, provider),
               const SizedBox(height: 8),
               _buildAddTextButton(context, provider),
+              const SizedBox(height: 8),
+              _buildImportDbButton(context, provider),
+            ],
+            if (provider.dbs.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              _buildExportDbButton(context, provider),
             ],
           ],
         );
@@ -733,9 +740,168 @@ class _DocumentsTab extends StatelessWidget {
     );
   }
 
+  Widget _buildImportDbButton(BuildContext context, RagProvider provider) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: Material(
+        color: AppColors.success.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () async {
+            final result = await FilePicker.platform.pickFiles(
+              type: FileType.custom,
+              allowedExtensions: ['db'],
+            );
+            if (result == null || result.files.isEmpty) return;
+            final file = result.files.first;
+            if (file.path == null) return;
+
+            final db = await VectorDbService.importDb(file.path!);
+            if (context.mounted && db != null) {
+              provider.loadDatabases();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Imported: ${db.name} (${db.chunkCount} chunks)', style: AppColors.font(size: 12)),
+                  backgroundColor: AppColors.success,
+                ),
+              );
+            } else if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Failed to import database', style: AppColors.font(size: 12)),
+                  backgroundColor: AppColors.error,
+                ),
+              );
+            }
+          },
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.download_rounded, color: AppColors.success, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Import Database (.db)',
+                style: AppColors.font(
+                  color: AppColors.success,
+                  size: 14,
+                  weight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExportDbButton(BuildContext context, RagProvider provider) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: Material(
+        color: AppColors.primary.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: provider.dbs.isEmpty ? null : () async {
+            // Show picker for which DB to export
+            final db = await showDialog<VectorDb>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                backgroundColor: AppColors.surface,
+                title: Text('Export Database'),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: provider.dbs.length,
+                    itemBuilder: (ctx, i) {
+                      final db = provider.dbs[i];
+                      return ListTile(
+                        dense: true,
+                        title: Text(db.displayName, style: AppColors.font(size: 14)),
+                        subtitle: Text('${db.chunkCount} chunks', style: AppColors.font(size: 11, color: AppColors.textHint)),
+                        onTap: () => Navigator.pop(ctx, db),
+                      );
+                    },
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: Text('Cancel'),
+                  ),
+                ],
+              ),
+            );
+            if (db == null || !context.mounted) return;
+
+            final dest = await FilePicker.platform.saveFile(
+              fileName: '${db.name}.db',
+              type: FileType.custom,
+              allowedExtensions: ['db'],
+            );
+            if (dest == null) return;
+
+            final result = await VectorDbService.exportDb(db.name, dest);
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    result != null ? 'Exported to: $dest' : 'Export failed',
+                    style: AppColors.font(size: 12),
+                  ),
+                  backgroundColor: result != null ? AppColors.success : AppColors.error,
+                ),
+              );
+            }
+          },
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.upload_rounded, color: AppColors.primary, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Export Database',
+                style: AppColors.font(
+                  color: AppColors.primary,
+                  size: 14,
+                  weight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showAddTextDialog(BuildContext context, RagProvider provider) {
     final textController = TextEditingController();
     final nameController = TextEditingController();
+    final chunkSizeController = TextEditingController(text: context.read<CacheService>().chunkSize.toString());
+
+    // Auto-detect chunk size based on text length
+    void autoDetectChunkSize() {
+      final len = textController.text.length;
+      int suggested;
+      if (len < 500) {
+        suggested = 200;
+      } else if (len < 2000) {
+        suggested = 300;
+      } else if (len < 10000) {
+        suggested = 500;
+      } else if (len < 50000) {
+        suggested = 700;
+      } else {
+        suggested = 1000;
+      }
+      chunkSizeController.text = suggested.toString();
+    }
+
+    textController.addListener(autoDetectChunkSize);
 
     showDialog(
       context: context,
@@ -744,35 +910,72 @@ class _DocumentsTab extends StatelessWidget {
         title: Text('Add Text'),
         content: SizedBox(
           width: double.maxFinite,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                style: AppColors.font(color: AppColors.textPrimary),
-                decoration: const InputDecoration(
-                  hintText: 'Database name (or select existing)',
-                  filled: true,
-                  fillColor: AppColors.surfaceLight,
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: textController,
-                maxLines: 5,
-                style: AppColors.font(color: AppColors.textPrimary),
-                decoration: const InputDecoration(
-                  hintText: 'Enter text to process...',
-                  filled: true,
-                  fillColor: AppColors.surfaceLight,
-                ),
-              ),
-            ],
+          child: StatefulBuilder(
+            builder: (context, setDialogState) {
+              // Re-run auto-detect when text changes
+              textController.removeListener(autoDetectChunkSize);
+              textController.addListener(() {
+                autoDetectChunkSize();
+                setDialogState(() {});
+              });
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    style: AppColors.font(color: AppColors.textPrimary),
+                    decoration: const InputDecoration(
+                      hintText: 'Database name (or select existing)',
+                      filled: true,
+                      fillColor: AppColors.surfaceLight,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: textController,
+                    maxLines: 5,
+                    style: AppColors.font(color: AppColors.textPrimary),
+                    decoration: const InputDecoration(
+                      hintText: 'Enter text to process...',
+                      filled: true,
+                      fillColor: AppColors.surfaceLight,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: chunkSizeController,
+                          keyboardType: TextInputType.number,
+                          style: AppColors.font(color: AppColors.textPrimary, size: 13),
+                          decoration: InputDecoration(
+                            labelText: 'Chunk size (auto-detected)',
+                            labelStyle: AppColors.font(size: 11, color: AppColors.textHint),
+                            filled: true,
+                            fillColor: AppColors.surfaceLight,
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${textController.text.length} chars',
+                        style: AppColors.font(size: 11, color: AppColors.textHint),
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
           ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              textController.removeListener(autoDetectChunkSize);
+              Navigator.pop(context);
+            },
             child: Text('Cancel'),
           ),
           TextButton(
@@ -781,9 +984,12 @@ class _DocumentsTab extends StatelessWidget {
               final name = nameController.text.trim();
               if (text.isEmpty || name.isEmpty) return;
 
+              final cacheService = context.read<CacheService>();
+              final chunkSize = int.tryParse(chunkSizeController.text) ?? cacheService.chunkSize;
+
+              textController.removeListener(autoDetectChunkSize);
               Navigator.pop(context);
 
-              // Create or get db
               String dbPath;
               final existing = provider.dbs.where(
                 (d) => d.displayName == name,
@@ -796,12 +1002,10 @@ class _DocumentsTab extends StatelessWidget {
                 dbPath = db.filePath;
               }
 
-              // Process text
-              final cacheService = context.read<CacheService>();
               await provider.processText(
                 dbPath: dbPath,
                 text: text,
-                chunkSize: cacheService.chunkSize,
+                chunkSize: chunkSize,
                 chunkOverlap: cacheService.chunkOverlap,
               );
             },

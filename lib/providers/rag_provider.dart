@@ -6,6 +6,15 @@ import '../services/text_chunker.dart';
 import '../services/log_service.dart';
 import '../providers/embedding_model_provider.dart';
 
+// Top-level function for isolate chunking
+List<String> _chunkInIsolate(Map<String, dynamic> params) {
+  final text = params['text'] as String;
+  final chunkSize = params['chunkSize'] as int;
+  final chunkOverlap = params['chunkOverlap'] as int;
+  final chunker = TextChunker(chunkSize: chunkSize, overlap: chunkOverlap);
+  return chunker.chunk(text);
+}
+
 class RagProvider extends ChangeNotifier {
   final EmbeddingModelProvider _embeddingProvider;
   final LogService _logService;
@@ -96,9 +105,14 @@ class RagProvider extends ChangeNotifier {
       throw Exception('Embedding model not loaded');
     }
 
-    final chunker = TextChunker(chunkSize: chunkSize, overlap: chunkOverlap);
-    final chunks = chunker.chunk(text);
-    _logService.log('RagProvider', 'Text chunked into ${chunks.length} chunks');
+    // Run chunking in an isolate to keep UI responsive
+    _logService.log('RagProvider', 'Running chunking in isolate...');
+    final chunks = await compute(_chunkInIsolate, {
+      'text': text,
+      'chunkSize': chunkSize,
+      'chunkOverlap': chunkOverlap,
+    });
+    _logService.log('RagProvider', 'Text chunked into ${chunks.length} chunks (via isolate)');
 
     if (chunks.isEmpty) {
       _logService.log('RagProvider', 'No chunks generated, returning');
@@ -107,7 +121,7 @@ class RagProvider extends ChangeNotifier {
 
     var totalEmbedded = 0;
 
-    // Process ONE chunk at a time: embed → store → clear → progress → repeat
+    // Process ONE chunk at a time with memory monitoring
     for (var i = 0; i < chunks.length; i++) {
       final chunk = chunks[i];
       final preview = chunk.length > 60 ? '${chunk.substring(0, 60)}...' : chunk;
@@ -123,18 +137,26 @@ class RagProvider extends ChangeNotifier {
         totalEmbedded++;
         _logService.log('RagProvider', '  Stored in DB. Total: $totalEmbedded/${chunks.length}');
 
-        // 3. Clear intermediate data — let GC reclaim the vector memory
+        // 3. Clear intermediate data
         final _ = vector;
 
         // 4. Progress callback with chunk preview
         onProgress?.call(totalEmbedded, chunks.length, preview);
 
-        // 5. Refresh DB list so UI shows updated chunk count immediately
-        _dbs = await VectorDbService.listDbs();
-        notifyListeners();
+        // 5. Yield to UI + check memory every 5 chunks
+        if (i % 5 == 0) {
+          await Future.delayed(const Duration(milliseconds: 50));
+          // Force GC hint
+          await Future.delayed(const Duration(milliseconds: 10));
+        }
+
+        // 6. Refresh DB list so UI shows updated chunk count
+        if (i % 3 == 0 || i == chunks.length - 1) {
+          _dbs = await VectorDbService.listDbs();
+          notifyListeners();
+        }
       } catch (e, stackTrace) {
         _logService.logError('RagProvider', 'Failed to process chunk $i', e, stackTrace);
-        // Continue with remaining chunks instead of failing entirely
         _logService.log('RagProvider', 'Skipping chunk $i, continuing...');
       }
     }
