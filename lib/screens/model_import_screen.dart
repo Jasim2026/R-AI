@@ -106,20 +106,20 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                           ),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.file_upload_outlined,
                           color: Colors.white,
                           size: 22,
                         ),
                       ),
                       const SizedBox(width: 14),
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           'Import Model',
-                          style: TextStyle(
+                          style: AppColors.font(
                             color: AppColors.textPrimary,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600,
+                            size: 20,
+                            weight: FontWeight.w600,
                           ),
                         ),
                       ),
@@ -145,12 +145,12 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                       if (supportedBackends.isNotEmpty) ...[
                         Row(
                           children: [
-                            const Text(
+                            Text(
                               'DETECTED ACCELERATORS',
-                              style: TextStyle(
+                              style: AppColors.font(
                                 color: AppColors.textHint,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
+                                size: 11,
+                                weight: FontWeight.w700,
                                 letterSpacing: 1,
                               ),
                             ),
@@ -161,12 +161,12 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                                 color: AppColors.accent.withOpacity(0.15),
                                 borderRadius: BorderRadius.circular(6),
                               ),
-                              child: const Text(
+                              child: Text(
                                 'AUTO',
-                                style: TextStyle(
+                                style: AppColors.font(
                                   color: AppColors.accent,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
+                                  size: 10,
+                                  weight: FontWeight.w700,
                                 ),
                               ),
                             ),
@@ -202,10 +202,10 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                                   const SizedBox(width: 6),
                                   Text(
                                     type.name.toUpperCase(),
-                                    style: const TextStyle(
+                                    style: AppColors.font(
                                       color: AppColors.textPrimary,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
+                                      size: 12,
+                                      weight: FontWeight.w600,
                                     ),
                                   ),
                                 ],
@@ -215,12 +215,12 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                         ),
                         const SizedBox(height: 20),
                       ],
-                      const Text(
+                      Text(
                         'PREFERRED ACCELERATOR',
-                        style: TextStyle(
+                        style: AppColors.font(
                           color: AppColors.textHint,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
+                          size: 11,
+                          weight: FontWeight.w700,
                           letterSpacing: 1,
                         ),
                       ),
@@ -270,12 +270,12 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                                         const SizedBox(height: 6),
                                         Text(
                                           type.name.toUpperCase(),
-                                          style: TextStyle(
+                                          style: AppColors.font(
                                             color: isSelected
                                                 ? AppColors.primary
                                                 : AppColors.textHint,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w600,
+                                            size: 11,
+                                            weight: FontWeight.w600,
                                           ),
                                         ),
                                         if (isSupported) ...[
@@ -371,12 +371,12 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Text(
+                              : Text(
                                   'Import Model',
-                                  style: TextStyle(
+                                  style: AppColors.font(
                                     color: Colors.white,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
+                                    size: 15,
+                                    weight: FontWeight.w600,
                                   ),
                                 ),
                         ),
@@ -402,19 +402,19 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
       children: [
         Text(
           label.toUpperCase(),
-          style: const TextStyle(
+          style: AppColors.font(
             color: AppColors.textHint,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
+            size: 11,
+            weight: FontWeight.w700,
             letterSpacing: 1,
           ),
         ),
         const SizedBox(height: 8),
         TextField(
           controller: controller,
-          style: const TextStyle(
+          style: AppColors.font(
             color: AppColors.textPrimary,
-            fontSize: 15,
+            size: 15,
           ),
           decoration: InputDecoration(
             hintText: hint,
@@ -443,19 +443,19 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
           const SizedBox(width: 12),
           Text(
             label,
-            style: const TextStyle(
+            style: AppColors.font(
               color: AppColors.textHint,
-              fontSize: 13,
+              size: 13,
             ),
           ),
           const Spacer(),
           Flexible(
             child: Text(
               value,
-              style: const TextStyle(
+              style: AppColors.font(
                 color: AppColors.textPrimary,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+                size: 13,
+                weight: FontWeight.w500,
               ),
               overflow: TextOverflow.ellipsis,
             ),
@@ -482,12 +482,12 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          title: const Text(
+          title: Text(
             'Models',
-            style: TextStyle(
+            style: AppColors.font(
               color: AppColors.textPrimary,
-              fontSize: 24,
-              fontWeight: FontWeight.w700,
+              size: 24,
+              weight: FontWeight.w700,
             ),
           ),
           actions: [
@@ -514,7 +514,7 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                                   color: AppColors.primary,
                                 ),
                               )
-                            : const Icon(
+                            : Icon(
                                 Icons.add_rounded,
                                 color: AppColors.primary,
                                 size: 18,
@@ -522,10 +522,10 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
                         const SizedBox(width: 6),
                         Text(
                           _isImporting ? 'Importing...' : 'Import',
-                          style: const TextStyle(
+                          style: AppColors.font(
                             color: AppColors.primary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
+                            size: 14,
+                            weight: FontWeight.w600,
                           ),
                         ),
                       ],

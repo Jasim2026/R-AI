@@ -5,6 +5,7 @@ import '../widgets/setting_tile.dart';
 import '../widgets/gradient_background.dart';
 import '../utils/theme.dart';
 import '../utils/constants.dart';
+import 'rag_management_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -15,13 +16,13 @@ class SettingsScreen extends StatelessWidget {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          title: const Text('Settings'),
+          title: Text('Settings'),
           actions: [
             Consumer<SettingsProvider>(
               builder: (context, settings, _) {
                 return IconButton(
                   onPressed: () => _showResetDialog(context, settings),
-                  icon: const Icon(Icons.restart_alt, size: 20),
+                  icon: Icon(Icons.restart_alt, size: 20),
                   tooltip: 'Reset to defaults',
                 );
               },
@@ -75,12 +76,12 @@ class SettingsScreen extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Temperature',
-                            style: TextStyle(
+                            style: AppColors.font(
                               color: AppColors.textPrimary,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w500,
+                              size: 15,
+                              weight: FontWeight.w500,
                             ),
                           ),
                           SettingSlider(
@@ -99,12 +100,12 @@ class SettingsScreen extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Top P',
-                            style: TextStyle(
+                            style: AppColors.font(
                               color: AppColors.textPrimary,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w500,
+                              size: 15,
+                              weight: FontWeight.w500,
                             ),
                           ),
                           SettingSlider(
@@ -123,7 +124,7 @@ class SettingsScreen extends StatelessWidget {
                       iconColor: AppColors.primary,
                       title: 'Max Tokens',
                       subtitle: '${settings.maxTokens} tokens',
-                      trailing: const Icon(
+                      trailing: Icon(
                         Icons.chevron_right,
                         color: AppColors.textHint,
                         size: 20,
@@ -133,7 +134,7 @@ class SettingsScreen extends StatelessWidget {
                   ],
                 ),
                 _buildSection(
-                  'RAG Settings',
+                  'RAG',
                   [
                     SettingTile(
                       icon: Icons.search_rounded,
@@ -146,16 +147,23 @@ class SettingsScreen extends StatelessWidget {
                       ),
                     ),
                     SettingTile(
-                      icon: Icons.format_list_numbered_rounded,
+                      icon: Icons.tune_rounded,
                       iconColor: AppColors.primary,
-                      title: 'RAG Top-K',
-                      subtitle: '${settings.ragTopK} results',
-                      trailing: const Icon(
+                      title: 'RAG Management',
+                      subtitle: 'Embedding models, documents, settings',
+                      trailing: Icon(
                         Icons.chevron_right,
                         color: AppColors.textHint,
                         size: 20,
                       ),
-                      onTap: () => _editRagTopK(context, settings),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const RagManagementScreen(),
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -208,10 +216,10 @@ class SettingsScreen extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
           child: Text(
             title.toUpperCase(),
-            style: const TextStyle(
+            style: AppColors.font(
               color: AppColors.textHint,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
+              size: 11,
+              weight: FontWeight.w700,
               letterSpacing: 1.2,
             ),
           ),
@@ -276,12 +284,12 @@ class SettingsScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            const Text(
+            Text(
               'Max Tokens',
-              style: TextStyle(
+              style: AppColors.font(
                 color: AppColors.textPrimary,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
+                size: 18,
+                weight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 20),
@@ -290,16 +298,16 @@ class SettingsScreen extends StatelessWidget {
               return ListTile(
                 title: Text(
                   '$tokens',
-                  style: TextStyle(
+                  style: AppColors.font(
                     color: isSelected
                         ? AppColors.primary
                         : AppColors.textPrimary,
-                    fontWeight:
+                    weight:
                         isSelected ? FontWeight.w600 : FontWeight.normal,
                   ),
                 ),
                 trailing: isSelected
-                    ? const Icon(Icons.check, color: AppColors.primary)
+                    ? Icon(Icons.check, color: AppColors.primary)
                     : null,
                 onTap: () {
                   settings.setMaxTokens(tokens);
@@ -336,12 +344,12 @@ class SettingsScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            const Text(
+            Text(
               'RAG Top-K Results',
-              style: TextStyle(
+              style: AppColors.font(
                 color: AppColors.textPrimary,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
+                size: 18,
+                weight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 20),
@@ -350,16 +358,16 @@ class SettingsScreen extends StatelessWidget {
               return ListTile(
                 title: Text(
                   '$k',
-                  style: TextStyle(
+                  style: AppColors.font(
                     color: isSelected
                         ? AppColors.primary
                         : AppColors.textPrimary,
-                    fontWeight:
+                    weight:
                         isSelected ? FontWeight.w600 : FontWeight.normal,
                   ),
                 ),
                 trailing: isSelected
-                    ? const Icon(Icons.check, color: AppColors.primary)
+                    ? Icon(Icons.check, color: AppColors.primary)
                     : null,
                 onTap: () {
                   settings.setRagTopK(k);
@@ -379,14 +387,14 @@ class SettingsScreen extends StatelessWidget {
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Reset Settings'),
-        content: const Text(
+        title: Text('Reset Settings'),
+        content: Text(
           'Are you sure you want to reset all settings to their default values?',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text('Cancel'),
           ),
           TextButton(
             onPressed: () {
@@ -396,9 +404,9 @@ class SettingsScreen extends StatelessWidget {
                 const SnackBar(content: Text('Settings reset to defaults')),
               );
             },
-            child: const Text(
+            child: Text(
               'Reset',
-              style: TextStyle(color: AppColors.error),
+              style: AppColors.font(color: AppColors.error),
             ),
           ),
         ],
@@ -454,13 +462,13 @@ class _SystemPromptEditorState extends State<_SystemPromptEditor> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
                     'System Prompt',
-                    style: TextStyle(
+                    style: AppColors.font(
                       color: AppColors.textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
+                      size: 18,
+                      weight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -469,7 +477,7 @@ class _SystemPromptEditorState extends State<_SystemPromptEditor> {
                     widget.settings.setSystemPrompt(_controller.text);
                     Navigator.pop(context);
                   },
-                  child: const Text('Save'),
+                  child: Text('Save'),
                 ),
               ],
             ),
@@ -482,9 +490,9 @@ class _SystemPromptEditorState extends State<_SystemPromptEditor> {
                 maxLines: null,
                 expands: true,
                 textAlignVertical: TextAlignVertical.top,
-                style: const TextStyle(
+                style: AppColors.font(
                   color: AppColors.textPrimary,
-                  fontSize: 15,
+                  size: 15,
                   height: 1.6,
                 ),
                 decoration: const InputDecoration(

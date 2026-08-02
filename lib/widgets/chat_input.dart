@@ -37,9 +37,58 @@ class _ChatInputState extends State<ChatInput> {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
-    context.read<ChatProvider>().sendMessage(text);
+    final chatProvider = context.read<ChatProvider>();
+    final blockReason = chatProvider.checkInferencePrerequisites();
+
+    if (blockReason != InferenceBlockReason.none) {
+      _showBlockModal(chatProvider.getBlockReasonMessage(blockReason));
+      return;
+    }
+
+    chatProvider.sendMessage(text);
     _controller.clear();
     _focusNode.requestFocus();
+  }
+
+  void _showBlockModal(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        contentPadding: const EdgeInsets.all(24),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.warning.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.warning_amber_rounded,
+                color: AppColors.warning,
+                size: 24,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              style: AppColors.font(size: 14, height: 1.5, color: AppColors.textSecondary),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('OK', style: AppColors.font(color: AppColors.primary)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -48,10 +97,10 @@ class _ChatInputState extends State<ChatInput> {
       builder: (context, chatProvider, _) {
         return Container(
           padding: EdgeInsets.only(
-            left: 16,
-            right: 12,
-            top: 12,
-            bottom: MediaQuery.of(context).padding.bottom + 12,
+            left: 12,
+            right: 8,
+            top: 8,
+            bottom: MediaQuery.of(context).padding.bottom + 8,
           ),
           decoration: const BoxDecoration(
             color: AppColors.surfaceDark,
@@ -67,15 +116,15 @@ class _ChatInputState extends State<ChatInput> {
             children: [
               Expanded(
                 child: Container(
-                  constraints: const BoxConstraints(maxHeight: 150),
+                  constraints: const BoxConstraints(maxHeight: 120),
                   decoration: BoxDecoration(
                     color: AppColors.surfaceLight,
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
                       color: _focusNode.hasFocus
-                          ? AppColors.primary.withOpacity(0.5)
+                          ? AppColors.primary.withOpacity(0.4)
                           : AppColors.divider,
-                      width: 1,
+                      width: 0.5,
                     ),
                   ),
                   child: TextField(
@@ -83,10 +132,7 @@ class _ChatInputState extends State<ChatInput> {
                     focusNode: _focusNode,
                     maxLines: null,
                     textInputAction: TextInputAction.newline,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 15,
-                    ),
+                    style: AppColors.font(size: 14),
                     decoration: InputDecoration(
                       hintText: 'Message R-AI...',
                       border: InputBorder.none,
@@ -94,24 +140,22 @@ class _ChatInputState extends State<ChatInput> {
                       focusedBorder: InputBorder.none,
                       filled: false,
                       contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 14,
+                        horizontal: 16,
+                        vertical: 10,
                       ),
-                      hintStyle: TextStyle(
-                        color: AppColors.textHint.withOpacity(0.6),
+                      hintStyle: AppColors.font(
+                        size: 14,
+                        color: AppColors.textHint.withOpacity(0.5),
                       ),
                     ),
                     onSubmitted: (_) => _send(),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                child: chatProvider.isGenerating
-                    ? _buildStopButton(chatProvider)
-                    : _buildSendButton(),
-              ),
+              const SizedBox(width: 6),
+              chatProvider.isGenerating
+                  ? _buildStopButton(chatProvider)
+                  : _buildSendButton(),
             ],
           ),
         );
@@ -120,23 +164,19 @@ class _ChatInputState extends State<ChatInput> {
   }
 
   Widget _buildSendButton() {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
+    return SizedBox(
+      width: 38,
+      height: 38,
       child: Material(
         color: _hasText ? AppColors.primary : AppColors.surfaceLight,
-        borderRadius: BorderRadius.circular(24),
+        shape: const CircleBorder(),
         child: InkWell(
-          borderRadius: BorderRadius.circular(24),
+          customBorder: const CircleBorder(),
           onTap: _hasText ? _send : null,
-          child: Container(
-            width: 44,
-            height: 44,
-            alignment: Alignment.center,
-            child: Icon(
-              Icons.arrow_upward_rounded,
-              color: _hasText ? Colors.white : AppColors.textHint,
-              size: 22,
-            ),
+          child: Icon(
+            Icons.arrow_upward_rounded,
+            color: _hasText ? Colors.white : AppColors.textHint,
+            size: 20,
           ),
         ),
       ),
@@ -144,20 +184,19 @@ class _ChatInputState extends State<ChatInput> {
   }
 
   Widget _buildStopButton(ChatProvider provider) {
-    return Material(
-      color: AppColors.error,
-      borderRadius: BorderRadius.circular(24),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(24),
-        onTap: provider.stopGeneration,
-        child: Container(
-          width: 44,
-          height: 44,
-          alignment: Alignment.center,
+    return SizedBox(
+      width: 38,
+      height: 38,
+      child: Material(
+        color: AppColors.error,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: provider.stopGeneration,
           child: const Icon(
             Icons.stop_rounded,
             color: Colors.white,
-            size: 24,
+            size: 22,
           ),
         ),
       ),

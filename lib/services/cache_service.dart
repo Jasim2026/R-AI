@@ -55,6 +55,26 @@ class CacheService {
     }
   }
 
+  String? get embeddingModelsJson => _prefs.getString('embedding_models');
+  Future<void> setEmbeddingModelsJson(String value) => _prefs.setString('embedding_models', value);
+
+  String? get selectedEmbeddingModelId => _prefs.getString('selected_embedding_model_id');
+  Future<void> setSelectedEmbeddingModelId(String? value) {
+    if (value != null) {
+      return _prefs.setString('selected_embedding_model_id', value);
+    }
+    return _prefs.remove('selected_embedding_model_id');
+  }
+
+  bool get embeddingModelLoaded => _prefs.getBool('embedding_model_loaded') ?? false;
+  Future<void> setEmbeddingModelLoaded(bool value) => _prefs.setBool('embedding_model_loaded', value);
+
+  int get chunkSize => _prefs.getInt('chunk_size') ?? 500;
+  set chunkSize(int value) => _prefs.setInt('chunk_size', value);
+
+  int get chunkOverlap => _prefs.getInt('chunk_overlap') ?? 50;
+  set chunkOverlap(int value) => _prefs.setInt('chunk_overlap', value);
+
   String _cacheKey(String modelId, String prompt, double temp, double topP, int maxTok) {
     return 'prompt_cache_${modelId}_${temp}_${topP}_${maxTok}_${prompt.hashCode}';
   }

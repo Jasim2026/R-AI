@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:markdown/markdown.dart' as md;
 import '../utils/theme.dart';
 
@@ -20,11 +21,7 @@ class MarkdownMessage extends StatelessWidget {
     if (isUser) {
       return SelectableText(
         content,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 15,
-          height: 1.55,
-        ),
+        style: AppColors.font(size: 14, height: 1.5),
       );
     }
 
@@ -41,86 +38,59 @@ class MarkdownMessage extends StatelessWidget {
 
   MarkdownStyleSheet _buildStyleSheet(BuildContext context) {
     return MarkdownStyleSheet(
-      p: const TextStyle(
-        color: AppColors.textPrimary,
-        fontSize: 15,
+      p: AppColors.font(size: 14, height: 1.6),
+      strong: AppColors.font(size: 14, weight: FontWeight.w700, height: 1.6),
+      em: AppColors.font(
+        size: 14,
         height: 1.6,
       ),
-      strong: const TextStyle(
-        color: AppColors.textPrimary,
-        fontWeight: FontWeight.w700,
-      ),
-      em: const TextStyle(
-        color: AppColors.textPrimary,
-        fontStyle: FontStyle.italic,
-      ),
-      code: const TextStyle(
+      code: GoogleFonts.jetBrainsMono(
         color: AppColors.primary,
-        fontSize: 13,
-        fontFamily: 'monospace',
-        backgroundColor: AppColors.surfaceDark,
+        fontSize: 12,
+        backgroundColor: AppColors.surfaceLight,
       ),
       codeblockDecoration: BoxDecoration(
         color: AppColors.surfaceDark,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.divider, width: 0.5),
       ),
-      codeblockPadding: const EdgeInsets.all(12),
-      h1: const TextStyle(
-        color: AppColors.textPrimary,
-        fontSize: 22,
-        fontWeight: FontWeight.w700,
-      ),
-      h2: const TextStyle(
-        color: AppColors.textPrimary,
-        fontSize: 20,
-        fontWeight: FontWeight.w600,
-      ),
-      h3: const TextStyle(
-        color: AppColors.textPrimary,
-        fontSize: 18,
-        fontWeight: FontWeight.w600,
-      ),
-      blockquote: const TextStyle(
+      codeblockPadding: const EdgeInsets.all(10),
+      h1: AppColors.font(size: 20, weight: FontWeight.w700, height: 1.3),
+      h2: AppColors.font(size: 17, weight: FontWeight.w600, height: 1.3),
+      h3: AppColors.font(size: 15, weight: FontWeight.w600, height: 1.3),
+      blockquote: AppColors.font(
+        size: 14,
         color: AppColors.textSecondary,
-        fontStyle: FontStyle.italic,
       ),
       blockquoteDecoration: BoxDecoration(
         border: Border(
           left: BorderSide(
-            color: AppColors.primary.withOpacity(0.5),
-            width: 3,
+            color: AppColors.primary.withOpacity(0.4),
+            width: 2,
           ),
         ),
       ),
-      listBullet: const TextStyle(
-        color: AppColors.textPrimary,
-      ),
-      listIndent: 24,
+      blockquotePadding: const EdgeInsets.only(left: 10, top: 4, bottom: 4),
+      listBullet: AppColors.font(size: 14, color: AppColors.textSecondary),
+      listIndent: 20,
       horizontalRuleDecoration: BoxDecoration(
         border: Border(
-          top: BorderSide(
-            color: AppColors.divider,
-            width: 1,
-          ),
+          top: BorderSide(color: AppColors.divider, width: 0.5),
         ),
       ),
-      tableHead: const TextStyle(
-        color: AppColors.textPrimary,
-        fontWeight: FontWeight.w600,
-        fontSize: 14,
+      tableHead: AppColors.font(
+        size: 13,
+        weight: FontWeight.w600,
+        color: AppColors.textSecondary,
       ),
-      tableBody: const TextStyle(
-        color: AppColors.textPrimary,
-        fontSize: 14,
-      ),
+      tableBody: AppColors.font(size: 13),
       tableBorder: TableBorder.all(
         color: AppColors.divider,
         width: 0.5,
       ),
       tableCellsPadding: const EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 8,
+        horizontal: 10,
+        vertical: 6,
       ),
     );
   }
@@ -131,15 +101,20 @@ class _CodeBlockBuilder extends MarkdownElementBuilder {
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
     final code = element.textContent;
     final lines = code.split('\n');
-    final language = lines.firstWhere(
-      (line) => line.trim().isNotEmpty,
-      orElse: () => '',
-    );
 
-    final codeContent = lines.length > 1 ? lines.sublist(1).join('\n') : code;
+    String language = '';
+    String codeContent = code;
+
+    if (lines.length > 1) {
+      final firstLine = lines.first.trim();
+      if (firstLine.isNotEmpty && !_isCode(firstLine)) {
+        language = firstLine;
+        codeContent = lines.sublist(1).join('\n').trim();
+      }
+    }
 
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
+      margin: const EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
         color: AppColors.surfaceDark,
         borderRadius: BorderRadius.circular(8),
@@ -150,31 +125,43 @@ class _CodeBlockBuilder extends MarkdownElementBuilder {
         children: [
           if (language.isNotEmpty)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.1),
+                color: AppColors.primary.withOpacity(0.06),
                 borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(8),
                 ),
               ),
-              child: Text(
-                language,
-                style: TextStyle(
-                  color: AppColors.primary.withOpacity(0.8),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.5),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    language,
+                    style: GoogleFonts.jetBrainsMono(
+                      color: AppColors.primary.withOpacity(0.7),
+                      fontSize: 10,
+                      weight: FontWeight.w500,
+                    ),
+                  ),
+                ],
               ),
             ),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
             child: SelectableText(
               codeContent,
-              style: const TextStyle(
+              style: GoogleFonts.jetBrainsMono(
                 color: AppColors.textPrimary,
-                fontSize: 13,
-                fontFamily: 'monospace',
+                fontSize: 12,
                 height: 1.5,
               ),
             ),
@@ -182,5 +169,11 @@ class _CodeBlockBuilder extends MarkdownElementBuilder {
         ],
       ),
     );
+  }
+
+  bool _isCode(String text) {
+    // Heuristic: if it looks like a programming statement, it's code
+    final codePatterns = RegExp(r'[{}\[\]();=<>]');
+    return codePatterns.hasMatch(text);
   }
 }

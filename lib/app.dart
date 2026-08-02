@@ -7,6 +7,7 @@ import 'providers/chat_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/model_provider.dart';
 import 'providers/rag_provider.dart';
+import 'providers/embedding_model_provider.dart';
 import 'screens/chat_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/model_import_screen.dart';

@@ -106,6 +106,9 @@ class MainActivity : FlutterActivity() {
                     handleEmbedBatch(args, result)
                 }
                 "closeEmbedding" -> handleCloseEmbedding(result)
+                "getEmbeddingDimension" -> {
+                    result.success(embeddingHandler?.getEmbeddingDimension() ?: 0)
+                }
                 else -> result.notImplemented()
             }
         }

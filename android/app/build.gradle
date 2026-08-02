@@ -55,10 +55,6 @@ dependencies {
     // Must be 1.11.0+ to match the bytecode litertlm-android was compiled against
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0"
 
-    // MediaPipe Text Embedding (all-MiniLM-L6-v2)
+    // MediaPipe Text Embedding (supports any .tflite/.litertlm embedding model)
     implementation "com.google.mediapipe:tasks-text:0.10.14"
-
-    // ObjectBox for vector search
-    implementation "io.objectbox:objectbox-android:4.0.1"
-    implementation "io.objectbox:objectbox-kotlin:4.0.1"
 }

@@ -5,7 +5,9 @@ import 'app.dart';
 import 'services/litert_service.dart';
 import 'services/storage_service.dart';
 import 'services/cache_service.dart';
+import 'services/embedding_service.dart';
 import 'providers/rag_provider.dart';
+import 'providers/embedding_model_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,6 +27,20 @@ void main() async {
   final storageService = await StorageService.getInstance();
   final cacheService = await CacheService.getInstance();
   final litertService = LiteRTService();
+  final embeddingService = EmbeddingService();
+
+  final embeddingModelProvider = EmbeddingModelProvider(
+    embeddingService: embeddingService,
+    cacheService: cacheService,
+  );
+
+  final ragProvider = RagProvider(
+    embeddingProvider: embeddingModelProvider,
+  );
+
+  // Load persisted state
+  await embeddingModelProvider.loadModels();
+  await ragProvider.loadDatabases();
 
   runApp(
     MultiProvider(
@@ -32,9 +48,11 @@ void main() async {
         Provider<LiteRTService>.value(value: litertService),
         Provider<StorageService>.value(value: storageService),
         Provider<CacheService>.value(value: cacheService),
-        ChangeNotifierProvider<RagProvider>(
-          create: (_) => RagProvider.lazy(),
+        Provider<EmbeddingService>.value(value: embeddingService),
+        ChangeNotifierProvider<EmbeddingModelProvider>.value(
+          value: embeddingModelProvider,
         ),
+        ChangeNotifierProvider<RagProvider>.value(value: ragProvider),
       ],
       child: const RAIApp(),
     ),

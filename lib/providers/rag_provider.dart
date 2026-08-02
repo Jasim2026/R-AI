@@ -1,88 +1,174 @@
 import 'package:flutter/foundation.dart';
-import '../services/rag_service.dart';
+import '../models/vector_db.dart';
+import '../models/vector_chunk.dart';
 import '../services/embedding_service.dart';
-import '../services/vector_service.dart';
+import '../services/vector_db_service.dart';
+import '../services/text_chunker.dart';
+import '../providers/embedding_model_provider.dart';
 
 class RagProvider extends ChangeNotifier {
-  RagService? _ragService;
+  final EmbeddingModelProvider _embeddingProvider;
 
-  bool _isEnabled = false;
+  List<VectorDb> _dbs = [];
   bool _isInitialized = false;
-  bool _isRetrieving = false;
-  String _lastQuery = '';
-  int _lastResultsCount = 0;
+  String? _error;
 
   RagProvider({
-    required RagService ragService,
-  }) : _ragService = ragService;
+    required EmbeddingModelProvider embeddingProvider,
+  }) : _embeddingProvider = embeddingProvider;
 
-  RagProvider.lazy();
-
-  bool get isEnabled => _isEnabled;
   bool get isInitialized => _isInitialized;
-  bool get isRetrieving => _isRetrieving;
-  bool get isReady => _ragService?.isReady ?? false;
-  String get lastQuery => _lastQuery;
-  int get lastResultsCount => _lastResultsCount;
+  bool get isLoaded => _embeddingProvider.isLoaded;
+  bool get isLoading => _embeddingProvider.isLoading;
+  bool get hasDbs => _dbs.isNotEmpty;
+  List<VectorDb> get dbs => _dbs;
+  String? get error => _error;
+  int get embeddingDimension => _embeddingProvider.embeddingDimension;
+  EmbeddingModelProvider get embeddingProvider => _embeddingProvider;
 
-  Future<void> _ensureInitialized() async {
-    if (_ragService != null) return;
-    final embeddingService = EmbeddingService();
-    final vectorService = await VectorService.getInstance();
-    _ragService = RagService(
-      embeddingService: embeddingService,
-      vectorService: vectorService,
-    );
-  }
-
-  void toggleRag() {
-    _isEnabled = !_isEnabled;
+  Future<void> loadDatabases() async {
+    _dbs = await VectorDbService.listDbs();
+    _isInitialized = true;
     notifyListeners();
   }
 
-  void setEnabled(bool value) {
-    _isEnabled = value;
+  Future<VectorDb> createDatabase(String name, {int? chunkSize, int? overlap}) async {
+    if (!_embeddingProvider.isLoaded) {
+      throw Exception('Embedding model not loaded');
+    }
+
+    final dim = _embeddingProvider.embeddingDimension;
+    final db = await VectorDbService.createDb(name, dim);
+    _dbs = await VectorDbService.listDbs();
+    notifyListeners();
+    return db;
+  }
+
+  Future<void> deleteDatabase(String name) async {
+    await VectorDbService.deleteDb(name);
+    _dbs = await VectorDbService.listDbs();
     notifyListeners();
   }
 
-  Future<void> initialize(String embeddingModelPath) async {
+  Future<void> processText({
+    required String dbPath,
+    required String text,
+    String source = '',
+    int chunkSize = 500,
+    int chunkOverlap = 50,
+    void Function(int current, int total)? onProgress,
+  }) async {
+    if (!_embeddingProvider.isLoaded) {
+      throw Exception('Embedding model not loaded');
+    }
+
+    final chunker = TextChunker(chunkSize: chunkSize, overlap: chunkOverlap);
+    final chunks = chunker.chunk(text);
+
+    if (chunks.isEmpty) return;
+
+    // Embed in batches of 32
+    const batchSize = 32;
+    for (var i = 0; i < chunks.length; i += batchSize) {
+      final end = (i + batchSize > chunks.length) ? chunks.length : i + batchSize;
+      final batch = chunks.sublist(i, end);
+
+      final vectors = await _embeddingProvider.embedBatch(batch);
+      await VectorDbService.addChunks(dbPath, batch, vectors);
+
+      onProgress?.call(end, chunks.length);
+    }
+
+    _dbs = await VectorDbService.listDbs();
+    notifyListeners();
+  }
+
+  Future<List<VectorSearchResult>> search({
+    required String query,
+    List<String>? dbPaths,
+    int topK = 5,
+    double minScore = 0.3,
+  }) async {
+    if (!_embeddingProvider.isLoaded) return [];
+
     try {
-      await _ensureInitialized();
-      await _ragService!.initialize(embeddingModelPath);
-      _isInitialized = _ragService!.isReady;
-      notifyListeners();
+      final queryVector = await _embeddingProvider.embed(query);
+      final paths = dbPaths ?? _dbs.map((d) => d.filePath).toList();
+
+      if (paths.isEmpty) return [];
+
+      return await VectorDbService.search(
+        dbPaths: paths,
+        queryVector: queryVector,
+        topK: topK,
+        minScore: minScore,
+      );
     } catch (e) {
-      _isInitialized = false;
+      _error = 'Search failed: $e';
       notifyListeners();
+      return [];
     }
   }
 
-  Future<RagResult> retrieve(String query) async {
-    if (!_isEnabled || !_isInitialized || _ragService == null) {
-      return RagResult(context: '', chunks: [], scores: []);
-    }
-
-    _isRetrieving = true;
-    _lastQuery = query;
-
-    try {
-      final result = await _ragService!.retrieve(query);
-      _lastResultsCount = result.chunks.length;
-      return result;
-    } catch (e) {
-      return RagResult(context: '', chunks: [], scores: []);
-    } finally {
-      _isRetrieving = false;
-    }
+  Future<List<VectorChunk>> loadChunks(String dbPath, {int? limit, int offset = 0}) async {
+    return await VectorDbService.loadChunks(dbPath, limit: limit, offset: offset);
   }
 
-  String buildRagPrompt(String userQuery, RagResult ragResult, String systemPrompt) {
-    return _ragService?.buildRagPrompt(userQuery, ragResult, systemPrompt) ?? '';
+  Future<void> editChunkText(String dbPath, int chunkId, String newText) async {
+    await VectorDbService.editText(dbPath, chunkId, newText);
+    _dbs = await VectorDbService.listDbs();
+    notifyListeners();
   }
 
-  @override
-  void dispose() {
-    _ragService?.dispose();
-    super.dispose();
+  Future<void> deleteChunks(String dbPath, List<int> chunkIds) async {
+    await VectorDbService.deleteChunks(dbPath, chunkIds);
+    _dbs = await VectorDbService.listDbs();
+    notifyListeners();
+  }
+
+  Future<void> addTextsToDb(String dbPath, List<String> texts) async {
+    if (!_embeddingProvider.isLoaded) throw Exception('Embedding model not loaded');
+
+    const batchSize = 32;
+    for (var i = 0; i < texts.length; i += batchSize) {
+      final end = (i + batchSize > texts.length) ? texts.length : i + batchSize;
+      final batch = texts.sublist(i, end);
+      final vectors = await _embeddingProvider.embedBatch(batch);
+      await VectorDbService.addChunks(dbPath, batch, vectors);
+    }
+
+    _dbs = await VectorDbService.listDbs();
+    notifyListeners();
+  }
+
+  String buildRagPrompt(String userQuery, List<VectorSearchResult> results, String systemPrompt) {
+    if (results.isEmpty) return userQuery;
+
+    final buffer = StringBuffer();
+    buffer.writeln(systemPrompt);
+    buffer.writeln();
+    buffer.writeln('Use the following context to answer the question. '
+        'If the context does not contain relevant information, '
+        'answer based on your general knowledge.');
+    buffer.writeln();
+    buffer.writeln('--- Context ---');
+
+    for (var i = 0; i < results.length; i++) {
+      buffer.writeln('[Context ${i + 1}] (score: ${results[i].score.toStringAsFixed(3)})');
+      buffer.writeln(results[i].text);
+      buffer.writeln();
+    }
+
+    buffer.writeln('--- End Context ---');
+    buffer.writeln();
+    buffer.writeln('Question: $userQuery');
+    buffer.write('Answer: ');
+
+    return buffer.toString();
+  }
+
+  void clearError() {
+    _error = null;
+    notifyListeners();
   }
 }

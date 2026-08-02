@@ -8,10 +8,6 @@
 -keep class kotlinx.coroutines.channels.SendChannel { *; }
 -keep class kotlinx.coroutines.channels.SendChannel$DefaultImpls { *; }
 
-# Keep ObjectBox classes
--keep class io.objectbox.** { *; }
--dontwarn io.objectbox.**
-
 # Keep MediaPipe Text Embedding classes
 -keep class com.google.mediapipe.** { *; }
 -dontwarn com.google.mediapipe.**

@@ -25,44 +25,43 @@ class SettingTile extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
               Container(
-                width: 36,
-                height: 36,
+                width: 32,
+                height: 32,
                 decoration: BoxDecoration(
-                  color: (iconColor ?? AppColors.primary).withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(10),
+                  color: (iconColor ?? AppColors.primary).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
                   icon,
                   color: iconColor ?? AppColors.primary,
-                  size: 18,
+                  size: 16,
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
+                      style: AppColors.font(
+                        size: 14,
+                        weight: FontWeight.w500,
                       ),
                     ),
                     if (subtitle != null) ...[
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 1),
                       Text(
                         subtitle!,
-                        style: const TextStyle(
+                        style: AppColors.font(
+                          size: 11,
                           color: AppColors.textHint,
-                          fontSize: 12,
                         ),
                       ),
                     ],
@@ -125,9 +124,9 @@ class SettingSlider extends StatelessWidget {
             activeTrackColor: AppColors.primary,
             inactiveTrackColor: AppColors.surfaceLight,
             thumbColor: AppColors.primary,
-            overlayColor: AppColors.primary.withOpacity(0.1),
-            trackHeight: 4,
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+            overlayColor: AppColors.primary.withOpacity(0.06),
+            trackHeight: 3,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
           ),
           child: Slider(
             value: value,
@@ -138,13 +137,10 @@ class SettingSlider extends StatelessWidget {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Text(
             labelBuilder?.call(value) ?? value.toStringAsFixed(1),
-            style: const TextStyle(
-              color: AppColors.textHint,
-              fontSize: 12,
-            ),
+            style: AppColors.font(size: 11, color: AppColors.textHint),
           ),
         ),
       ],

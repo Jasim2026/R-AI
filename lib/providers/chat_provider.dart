@@ -5,8 +5,14 @@ import '../models/message.dart';
 import '../services/litert_service.dart';
 import '../services/cache_service.dart';
 import '../services/storage_service.dart';
-import '../services/rag_service.dart';
 import '../providers/rag_provider.dart';
+
+enum InferenceBlockReason {
+  none,
+  noLlmModel,
+  ragEnabledButNoEmbeddingModel,
+  ragEnabledButNoDatabases,
+}
 
 class ChatProvider extends ChangeNotifier {
   final LiteRTService _litertService;
@@ -38,6 +44,42 @@ class ChatProvider extends ChangeNotifier {
   List<ChatSession> get sessions => _sessions;
   bool get isGenerating => _isGenerating;
   bool get canStop => _isGenerating;
+  RagProvider? get ragProvider => _ragProvider;
+
+  InferenceBlockReason checkInferencePrerequisites() {
+    final ragEnabled = _cacheService.ragEnabled;
+    final llmLoaded = _litertService.currentModel != null;
+
+    if (!llmLoaded) {
+      return InferenceBlockReason.noLlmModel;
+    }
+
+    if (ragEnabled) {
+      if (_ragProvider == null || !_ragProvider!.isLoaded) {
+        return InferenceBlockReason.ragEnabledButNoEmbeddingModel;
+      }
+      if (!_ragProvider!.hasDbs) {
+        return InferenceBlockReason.ragEnabledButNoDatabases;
+      }
+    }
+
+    return InferenceBlockReason.none;
+  }
+
+  String getBlockReasonMessage(InferenceBlockReason reason) {
+    switch (reason) {
+      case InferenceBlockReason.none:
+        return '';
+      case InferenceBlockReason.noLlmModel:
+        return 'No LLM model loaded. Import and load a model from the Models tab.';
+      case InferenceBlockReason.ragEnabledButNoEmbeddingModel:
+        return 'RAG is enabled but the embedding model is not loaded. '
+            'Go to Settings > RAG Management to load an embedding model.';
+      case InferenceBlockReason.ragEnabledButNoDatabases:
+        return 'RAG is enabled but no document databases exist. '
+            'Go to Settings > RAG Management to import documents.';
+    }
+  }
 
   Future<void> loadSessions() async {
     if (_sessionsLoaded) return;
@@ -76,6 +118,22 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> sendMessage(String content) async {
     if (content.trim().isEmpty || _isGenerating) return;
+
+    final blockReason = checkInferencePrerequisites();
+    if (blockReason != InferenceBlockReason.none) {
+      final errorMessage = Message(
+        content: getBlockReasonMessage(blockReason),
+        role: MessageRole.assistant,
+        error: blockReason.toString(),
+      );
+      if (_currentSession == null) {
+        await createNewSession();
+      }
+      _currentSession!.addMessage(errorMessage);
+      await _storageService.saveChatSession(_currentSession!);
+      notifyListeners();
+      return;
+    }
 
     if (_currentSession == null) {
       await createNewSession();
@@ -140,26 +198,32 @@ class ChatProvider extends ChangeNotifier {
       final userContent = lastUserMsg?.content ?? '';
 
       String promptToSend = userContent;
-      RagResult? ragResult;
+      bool usedRag = false;
 
-      if (_ragProvider != null &&
-          _ragProvider!.isEnabled &&
-          _ragProvider!.isInitialized) {
-        ragResult = await _ragProvider!.retrieve(userContent);
-        if (ragResult.hasResults) {
+      if (_cacheService.ragEnabled &&
+          _ragProvider != null &&
+          _ragProvider!.isLoaded &&
+          _ragProvider!.hasDbs) {
+        final topK = _cacheService.ragTopK;
+        final results = await _ragProvider!.search(
+          query: userContent,
+          topK: topK,
+        );
+
+        if (results.isNotEmpty) {
           promptToSend = _ragProvider!.buildRagPrompt(
             userContent,
-            ragResult,
+            results,
             _cacheService.systemPrompt,
           );
+          usedRag = true;
         }
       }
 
       if (_cacheService.streamingEnabled) {
         final stream = _litertService.generateStream(
           prompt: promptToSend,
-          systemInstruction:
-              ragResult?.hasResults == true ? '' : _cacheService.systemPrompt,
+          systemInstruction: usedRag ? '' : _cacheService.systemPrompt,
           maxTokens: _cacheService.maxTokens,
           temperature: _cacheService.temperature,
           topP: _cacheService.topP,
@@ -189,8 +253,7 @@ class ChatProvider extends ChangeNotifier {
       } else {
         final response = await _litertService.generate(
           prompt: promptToSend,
-          systemInstruction:
-              ragResult?.hasResults == true ? '' : _cacheService.systemPrompt,
+          systemInstruction: usedRag ? '' : _cacheService.systemPrompt,
           maxTokens: _cacheService.maxTokens,
           temperature: _cacheService.temperature,
           topP: _cacheService.topP,

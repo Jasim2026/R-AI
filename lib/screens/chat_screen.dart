@@ -165,23 +165,23 @@ class _ChatScreenState extends State<ChatScreen> {
               children: [
                 Text(
                   model?.name ?? 'No Model',
-                  style: TextStyle(
+                  style: AppColors.font(
+                    size: 14,
+                    weight: FontWeight.w600,
                     color: isLoaded
                         ? AppColors.textPrimary
                         : AppColors.textHint,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 Text(
                   isLoaded
                       ? '${model!.backendName} Accelerated'
                       : 'Tap to load a model',
-                  style: TextStyle(
+                  style: AppColors.font(
+                    size: 11,
                     color: isLoaded
                         ? AppColors.success
                         : AppColors.textHint.withOpacity(0.7),
-                    fontSize: 11,
                   ),
                 ),
               ],
@@ -252,21 +252,20 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          const Text(
+          Text(
             'Hello there!',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 26,
-              fontWeight: FontWeight.w700,
+            style: AppColors.font(
+              size: 26,
+              weight: FontWeight.w700,
               letterSpacing: -0.5,
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'I\'m R-AI, your on-device AI assistant.\nLoad a model and start chatting.',
-            style: TextStyle(
+            style: AppColors.font(
+              size: 15,
               color: AppColors.textHint,
-              fontSize: 15,
               height: 1.5,
             ),
             textAlign: TextAlign.center,
@@ -310,9 +309,9 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               child: Text(
                 suggestion,
-                style: const TextStyle(
+                style: AppColors.font(
+                  size: 13,
                   color: AppColors.textSecondary,
-                  fontSize: 13,
                 ),
               ),
             ),
