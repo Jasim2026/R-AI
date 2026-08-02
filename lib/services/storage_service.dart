@@ -30,11 +30,12 @@ class StorageService {
   }
 
   Future<List<ChatSession>> loadAllChatSessions() async {
-    final files = _appDir
-        .listSync()
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.json'))
-        .toList();
+    final files = <File>[];
+    await for (final entity in _appDir.list()) {
+      if (entity is File && entity.path.endsWith('.json')) {
+        files.add(entity);
+      }
+    }
 
     final sessions = <ChatSession>[];
     for (final file in files) {

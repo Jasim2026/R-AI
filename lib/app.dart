@@ -79,29 +79,24 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
-
-  final _screens = const [
-    ChatScreen(),
-    ModelImportScreen(),
-    SettingsScreen(),
-  ];
+  bool _initialized = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ChatProvider>().loadSessions();
-      context.read<ModelProvider>().loadModels();
+      if (!_initialized) {
+        _initialized = true;
+        context.read<ChatProvider>().loadSessions();
+        context.read<ModelProvider>().loadModels();
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
-      ),
+      body: _buildCurrentScreen(),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           border: Border(
@@ -117,7 +112,7 @@ class _MainShellState extends State<MainShell> {
             setState(() => _currentIndex = index);
           },
           backgroundColor: AppColors.surfaceDark,
-          indicatorColor: AppColors.primary.withOpacity(0.15),
+          indicatorColor: const Color(0x266C63FF),
           height: 70,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           destinations: const [
@@ -140,5 +135,18 @@ class _MainShellState extends State<MainShell> {
         ),
       ),
     );
+  }
+
+  Widget _buildCurrentScreen() {
+    switch (_currentIndex) {
+      case 0:
+        return const ChatScreen();
+      case 1:
+        return const ModelImportScreen();
+      case 2:
+        return const SettingsScreen();
+      default:
+        return const ChatScreen();
+    }
   }
 }

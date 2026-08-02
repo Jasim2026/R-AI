@@ -7,9 +7,6 @@ import 'screens/permission_screen.dart';
 import 'services/litert_service.dart';
 import 'services/storage_service.dart';
 import 'services/cache_service.dart';
-import 'services/embedding_service.dart';
-import 'services/vector_service.dart';
-import 'services/rag_service.dart';
 import 'providers/rag_provider.dart';
 
 void main() async {
@@ -27,21 +24,11 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  // Check storage permissions
   final hasPermission = await _checkStoragePermission();
 
   final storageService = await StorageService.getInstance();
   final cacheService = await CacheService.getInstance();
   final litertService = LiteRTService();
-  final embeddingService = EmbeddingService();
-  final vectorService = await VectorService.getInstance();
-
-  final ragService = RagService(
-    embeddingService: embeddingService,
-    vectorService: vectorService,
-  );
-
-  final ragProvider = RagProvider(ragService: ragService);
 
   runApp(
     MultiProvider(
@@ -49,10 +36,9 @@ void main() async {
         Provider<LiteRTService>.value(value: litertService),
         Provider<StorageService>.value(value: storageService),
         Provider<CacheService>.value(value: cacheService),
-        Provider<EmbeddingService>.value(value: embeddingService),
-        Provider<VectorService>.value(value: vectorService),
-        Provider<RagService>.value(value: ragService),
-        ChangeNotifierProvider<RagProvider>.value(value: ragProvider),
+        ChangeNotifierProvider<RagProvider>(
+          create: (_) => RagProvider.lazy(),
+        ),
       ],
       child: RAIApp(hasPermission: hasPermission),
     ),

@@ -16,42 +16,42 @@ class SettingsProvider extends ChangeNotifier {
   bool get ragEnabled => _cacheService.ragEnabled;
   int get ragTopK => _cacheService.ragTopK;
 
-  Future<void> setCachePrompts(bool value) async {
+  void setCachePrompts(bool value) {
     _cacheService.cachePrompts = value;
     notifyListeners();
   }
 
-  Future<void> setSystemPrompt(String value) async {
+  void setSystemPrompt(String value) {
     _cacheService.systemPrompt = value;
     notifyListeners();
   }
 
-  Future<void> setTemperature(double value) async {
+  void setTemperature(double value) {
     _cacheService.temperature = value;
     notifyListeners();
   }
 
-  Future<void> setTopP(double value) async {
+  void setTopP(double value) {
     _cacheService.topP = value;
     notifyListeners();
   }
 
-  Future<void> setMaxTokens(int value) async {
+  void setMaxTokens(int value) {
     _cacheService.maxTokens = value;
     notifyListeners();
   }
 
-  Future<void> setStreamingEnabled(bool value) async {
+  void setStreamingEnabled(bool value) {
     _cacheService.streamingEnabled = value;
     notifyListeners();
   }
 
-  Future<void> setRagEnabled(bool value) async {
+  void setRagEnabled(bool value) {
     _cacheService.ragEnabled = value;
     notifyListeners();
   }
 
-  Future<void> setRagTopK(int value) async {
+  void setRagTopK(int value) {
     _cacheService.ragTopK = value;
     notifyListeners();
   }
@@ -60,7 +60,7 @@ class SettingsProvider extends ChangeNotifier {
     await _cacheService.clearPromptCache();
   }
 
-  Future<void> resetToDefaults() async {
+  void resetToDefaults() {
     _cacheService.cachePrompts = false;
     _cacheService.systemPrompt =
         'You are a helpful, harmless, and honest AI assistant.';

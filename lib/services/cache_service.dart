@@ -55,8 +55,12 @@ class CacheService {
     }
   }
 
+  String _cacheKey(String modelId, String prompt, double temp, double topP, int maxTok) {
+    return 'prompt_cache_${modelId}_${temp}_${topP}_${maxTok}_${prompt.hashCode}';
+  }
+
   Future<void> savePromptCache(String modelId, String prompt, String response) async {
-    final key = 'prompt_cache_${modelId}_${prompt.hashCode}';
+    final key = _cacheKey(modelId, prompt, temperature, topP, maxTokens);
     final data = {
       'prompt': prompt,
       'response': response,
@@ -66,7 +70,7 @@ class CacheService {
   }
 
   String? getCachedResponse(String modelId, String prompt) {
-    final key = 'prompt_cache_${modelId}_${prompt.hashCode}';
+    final key = _cacheKey(modelId, prompt, temperature, topP, maxTokens);
     final data = _prefs.getString(key);
     if (data == null) return null;
 

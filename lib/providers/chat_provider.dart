@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/chat_session.dart';
 import '../models/message.dart';
@@ -17,7 +18,11 @@ class ChatProvider extends ChangeNotifier {
   List<ChatSession> _sessions = [];
   bool _isGenerating = false;
   bool _isCancelled = false;
-  String _currentResponse = '';
+  final StringBuffer _buffer = StringBuffer();
+  DateTime _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
+  Timer? _saveTimer;
+  bool _sessionsLoaded = false;
+  bool _modelsLoaded = false;
 
   ChatProvider({
     required LiteRTService litertService,
@@ -35,8 +40,15 @@ class ChatProvider extends ChangeNotifier {
   bool get canStop => _isGenerating;
 
   Future<void> loadSessions() async {
+    if (_sessionsLoaded) return;
     _sessions = await _storageService.loadAllChatSessions();
+    _sessionsLoaded = true;
     notifyListeners();
+  }
+
+  Future<void> loadModelsIfNeeded(bool Function() isLoaded) async {
+    if (_modelsLoaded) return;
+    _modelsLoaded = true;
   }
 
   Future<void> createNewSession() async {
@@ -98,10 +110,27 @@ class ChatProvider extends ChangeNotifier {
     await _generateResponse();
   }
 
+  void _throttledNotify() {
+    final now = DateTime.now();
+    if (now.difference(_lastNotify).inMilliseconds > 60) {
+      _lastNotify = now;
+      notifyListeners();
+    }
+  }
+
+  void _debouncedSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(seconds: 3), () {
+      if (_currentSession != null) {
+        _storageService.saveChatSession(_currentSession!);
+      }
+    });
+  }
+
   Future<void> _generateResponse() async {
     _isGenerating = true;
     _isCancelled = false;
-    _currentResponse = '';
+    _buffer.clear();
     notifyListeners();
 
     try {
@@ -110,11 +139,12 @@ class ChatProvider extends ChangeNotifier {
           .lastOrNull;
       final userContent = lastUserMsg?.content ?? '';
 
-      // RAG retrieval if enabled
       String promptToSend = userContent;
       RagResult? ragResult;
 
-      if (_ragProvider != null && _ragProvider!.isEnabled && _ragProvider!.isInitialized) {
+      if (_ragProvider != null &&
+          _ragProvider!.isEnabled &&
+          _ragProvider!.isInitialized) {
         ragResult = await _ragProvider!.retrieve(userContent);
         if (ragResult.hasResults) {
           promptToSend = _ragProvider!.buildRagPrompt(
@@ -128,7 +158,8 @@ class ChatProvider extends ChangeNotifier {
       if (_cacheService.streamingEnabled) {
         final stream = _litertService.generateStream(
           prompt: promptToSend,
-          systemInstruction: ragResult?.hasResults == true ? '' : _cacheService.systemPrompt,
+          systemInstruction:
+              ragResult?.hasResults == true ? '' : _cacheService.systemPrompt,
           maxTokens: _cacheService.maxTokens,
           temperature: _cacheService.temperature,
           topP: _cacheService.topP,
@@ -137,43 +168,46 @@ class ChatProvider extends ChangeNotifier {
 
         await for (final token in stream) {
           if (_isCancelled) break;
-          _currentResponse += token;
+          _buffer.write(token);
 
           if (_currentSession!.messages.isNotEmpty &&
               _currentSession!.messages.last.role ==
                   MessageRole.assistant &&
               _currentSession!.messages.last.isStreaming) {
             _currentSession!.messages.last = _currentSession!.messages.last
-                .copyWith(content: _currentResponse);
+                .copyWith(content: _buffer.toString());
           } else {
             final assistantMessage = Message(
-              content: _currentResponse,
+              content: _buffer.toString(),
               role: MessageRole.assistant,
               isStreaming: true,
             );
             _currentSession!.messages.add(assistantMessage);
           }
-          notifyListeners();
+          _throttledNotify();
         }
       } else {
-        _currentResponse = await _litertService.generate(
+        final response = await _litertService.generate(
           prompt: promptToSend,
-          systemInstruction: ragResult?.hasResults == true ? '' : _cacheService.systemPrompt,
+          systemInstruction:
+              ragResult?.hasResults == true ? '' : _cacheService.systemPrompt,
           maxTokens: _cacheService.maxTokens,
           temperature: _cacheService.temperature,
           topP: _cacheService.topP,
           cachePrompt: _cacheService.cachePrompts,
         );
+        _buffer.write(response);
       }
 
       if (!_isCancelled) {
+        final finalResponse = _buffer.toString();
         if (_currentSession!.messages.isNotEmpty &&
             _currentSession!.messages.last.role == MessageRole.assistant) {
           _currentSession!.messages.last = _currentSession!.messages.last
-              .copyWith(content: _currentResponse, isStreaming: false);
+              .copyWith(content: finalResponse, isStreaming: false);
         } else {
           final assistantMessage = Message(
-            content: _currentResponse,
+            content: finalResponse,
             role: MessageRole.assistant,
           );
           _currentSession!.addMessage(assistantMessage);
@@ -188,13 +222,13 @@ class ChatProvider extends ChangeNotifier {
             await _cacheService.savePromptCache(
               _litertService.currentModel!.id,
               lastUserMsg.content,
-              _currentResponse,
+              finalResponse,
             );
           }
         }
       }
 
-      await _storageService.saveChatSession(_currentSession!);
+      _debouncedSave();
     } catch (e) {
       final errorMessage = Message(
         content: 'Error: $e',
@@ -205,7 +239,7 @@ class ChatProvider extends ChangeNotifier {
       await _storageService.saveChatSession(_currentSession!);
     } finally {
       _isGenerating = false;
-      _currentResponse = '';
+      _buffer.clear();
       notifyListeners();
     }
   }
@@ -213,9 +247,9 @@ class ChatProvider extends ChangeNotifier {
   Future<void> stopGeneration() async {
     _isCancelled = true;
     await _litertService.cancelGeneration();
-    if (_currentSession != null && _currentResponse.isNotEmpty) {
+    if (_currentSession != null && _buffer.isNotEmpty) {
       final assistantMessage = Message(
-        content: _currentResponse,
+        content: _buffer.toString(),
         role: MessageRole.assistant,
       );
       if (_currentSession!.messages.isNotEmpty &&
@@ -225,7 +259,13 @@ class ChatProvider extends ChangeNotifier {
       await _storageService.saveChatSession(_currentSession!);
     }
     _isGenerating = false;
-    _currentResponse = '';
+    _buffer.clear();
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    super.dispose();
   }
 }

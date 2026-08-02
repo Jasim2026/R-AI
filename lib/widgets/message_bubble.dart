@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import '../models/message.dart';
 import '../utils/theme.dart';
 
-class MessageBubble extends StatefulWidget {
+class MessageBubble extends StatelessWidget {
   final Message message;
   final bool isLast;
 
@@ -13,46 +13,24 @@ class MessageBubble extends StatefulWidget {
     this.isLast = false,
   });
 
-  @override
-  State<MessageBubble> createState() => _MessageBubbleState();
-}
-
-class _MessageBubbleState extends State<MessageBubble>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _fadeIn;
-  late Animation<Offset> _slideUp;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 400),
-      vsync: this,
-    );
-    _fadeIn = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
-    _slideUp = Tween<Offset>(
-      begin: const Offset(0, 0.1),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
-    _controller.forward();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  static const _errorBubbleBg = Color(0x26E53935);
+  static const _errorBorder = Color(0x4CE53935);
+  static const _errorText = Color(0xFFE53935);
+  static const _streamingIndicator = Color(0xB36C63FF);
+  static const _streamingText = Color(0xB39E9E9E);
 
   @override
   Widget build(BuildContext context) {
-    final isUser = widget.message.role == MessageRole.user;
-    final hasError = widget.message.error != null;
+    final isUser = message.role == MessageRole.user;
+    final hasError = message.error != null;
 
-    return FadeTransition(
-      opacity: _fadeIn,
-      child: SlideTransition(
-        position: _slideUp,
+    return AnimatedOpacity(
+      opacity: 1.0,
+      duration: const Duration(milliseconds: 300),
+      child: AnimatedSlide(
+        offset: Offset.zero,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
         child: Align(
           alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
           child: Container(
@@ -112,7 +90,7 @@ class _MessageBubbleState extends State<MessageBubble>
                   ),
                   decoration: BoxDecoration(
                     color: hasError
-                        ? AppColors.error.withOpacity(0.15)
+                        ? _errorBubbleBg
                         : isUser
                             ? AppColors.userBubble
                             : AppColors.assistantBubble,
@@ -123,10 +101,7 @@ class _MessageBubbleState extends State<MessageBubble>
                       bottomRight: Radius.circular(isUser ? 6 : 20),
                     ),
                     border: hasError
-                        ? Border.all(
-                            color: AppColors.error.withOpacity(0.3),
-                            width: 1,
-                          )
+                        ? Border.all(color: _errorBorder, width: 1)
                         : isUser
                             ? null
                             : Border.all(
@@ -138,10 +113,10 @@ class _MessageBubbleState extends State<MessageBubble>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       SelectableText(
-                        widget.message.content,
+                        message.content,
                         style: TextStyle(
                           color: hasError
-                              ? AppColors.error
+                              ? _errorText
                               : isUser
                                   ? Colors.white
                                   : AppColors.textPrimary,
@@ -149,7 +124,7 @@ class _MessageBubbleState extends State<MessageBubble>
                           height: 1.55,
                         ),
                       ),
-                      if (widget.isLast && widget.message.isStreaming)
+                      if (isLast && message.isStreaming)
                         _buildStreamingIndicator(),
                     ],
                   ),
@@ -160,7 +135,7 @@ class _MessageBubbleState extends State<MessageBubble>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        _formatTime(widget.message.timestamp),
+                        _formatTime(message.timestamp),
                         style: const TextStyle(
                           color: AppColors.textHint,
                           fontSize: 10,
@@ -170,7 +145,7 @@ class _MessageBubbleState extends State<MessageBubble>
                       InkWell(
                         onTap: () {
                           Clipboard.setData(
-                              ClipboardData(text: widget.message.content));
+                              ClipboardData(text: message.content));
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text('Copied to clipboard'),
@@ -205,19 +180,19 @@ class _MessageBubbleState extends State<MessageBubble>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
+          const SizedBox(
             width: 12,
             height: 12,
             child: CircularProgressIndicator(
               strokeWidth: 1.5,
-              color: AppColors.primary.withOpacity(0.7),
+              color: _streamingIndicator,
             ),
           ),
           const SizedBox(width: 6),
-          Text(
+          const Text(
             'Generating...',
             style: TextStyle(
-              color: AppColors.textHint.withOpacity(0.7),
+              color: _streamingText,
               fontSize: 11,
             ),
           ),

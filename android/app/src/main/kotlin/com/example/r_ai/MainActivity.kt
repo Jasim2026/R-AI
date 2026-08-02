@@ -12,9 +12,12 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.LogSeverity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
 
 class MainActivity : FlutterActivity() {
@@ -24,8 +27,8 @@ class MainActivity : FlutterActivity() {
 
     private var engine: Engine? = null
     private var conversation: Conversation? = null
-    private var generationJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.Main + Job())
+    private var generationJob: kotlinx.coroutines.Job? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private var eventSink: EventChannel.EventSink? = null
     private var embeddingHandler: EmbeddingHandler? = null
@@ -38,21 +41,70 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "initialize" -> handleInitialize(result)
-                "loadModel" -> handleLoadModel(call.arguments as Map<*, *>, result)
+                "loadModel" -> {
+                    val args = call.arguments as? Map<*, *>
+                    if (args == null) {
+                        result.error("INVALID_ARGS", "Arguments must be a Map", null)
+                        return@setMethodCallHandler
+                    }
+                    handleLoadModel(args, result)
+                }
                 "unloadModel" -> handleUnloadModel(result)
-                "sendMessage" -> handleSendMessage(call.arguments as Map<*, *>, result)
-                "sendMessageAsync" -> handleSendMessageAsync(call.arguments as Map<*, *>, result)
+                "sendMessage" -> {
+                    val args = call.arguments as? Map<*, *>
+                    if (args == null) {
+                        result.error("INVALID_ARGS", "Arguments must be a Map", null)
+                        return@setMethodCallHandler
+                    }
+                    handleSendMessage(args, result)
+                }
+                "sendMessageAsync" -> {
+                    val args = call.arguments as? Map<*, *>
+                    if (args == null) {
+                        result.error("INVALID_ARGS", "Arguments must be a Map", null)
+                        return@setMethodCallHandler
+                    }
+                    handleSendMessageAsync(args, result)
+                }
                 "cancel" -> handleCancel(result)
-                "readModelMetadata" -> handleReadModelMetadata(call.arguments as Map<*, *>, result)
+                "readModelMetadata" -> {
+                    val args = call.arguments as? Map<*, *>
+                    if (args == null) {
+                        result.error("INVALID_ARGS", "Arguments must be a Map", null)
+                        return@setMethodCallHandler
+                    }
+                    handleReadModelMetadata(args, result)
+                }
                 else -> result.notImplemented()
             }
         }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, EMBEDDING_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
-                "initEmbedding" -> handleInitEmbedding(call.arguments as Map<*, *>, result)
-                "embed" -> handleEmbed(call.arguments as Map<*, *>, result)
-                "embedBatch" -> handleEmbedBatch(call.arguments as Map<*, *>, result)
+                "initEmbedding" -> {
+                    val args = call.arguments as? Map<*, *>
+                    if (args == null) {
+                        result.error("INVALID_ARGS", "Arguments must be a Map", null)
+                        return@setMethodCallHandler
+                    }
+                    handleInitEmbedding(args, result)
+                }
+                "embed" -> {
+                    val args = call.arguments as? Map<*, *>
+                    if (args == null) {
+                        result.error("INVALID_ARGS", "Arguments must be a Map", null)
+                        return@setMethodCallHandler
+                    }
+                    handleEmbed(args, result)
+                }
+                "embedBatch" -> {
+                    val args = call.arguments as? Map<*, *>
+                    if (args == null) {
+                        result.error("INVALID_ARGS", "Arguments must be a Map", null)
+                        return@setMethodCallHandler
+                    }
+                    handleEmbedBatch(args, result)
+                }
                 "closeEmbedding" -> handleCloseEmbedding(result)
                 else -> result.notImplemented()
             }
@@ -84,11 +136,11 @@ class MainActivity : FlutterActivity() {
                 if (success) {
                     embeddingHandler = handler
                 }
-                scope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     result.success(success)
                 }
             } catch (e: Exception) {
-                scope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     result.error("EMBEDDING_INIT_FAILED", e.message, null)
                 }
             }
@@ -107,16 +159,16 @@ class MainActivity : FlutterActivity() {
                 val text = args["text"] as String
                 val embedding = handler.embed(text)
                 if (embedding != null) {
-                    scope.launch(Dispatchers.Main) {
+                    withContext(Dispatchers.Main) {
                         result.success(embedding.toList())
                     }
                 } else {
-                    scope.launch(Dispatchers.Main) {
+                    withContext(Dispatchers.Main) {
                         result.error("EMBED_FAILED", "Failed to embed text", null)
                     }
                 }
             } catch (e: Exception) {
-                scope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     result.error("EMBED_FAILED", e.message, null)
                 }
             }
@@ -135,11 +187,11 @@ class MainActivity : FlutterActivity() {
                 val texts = args["texts"] as List<String>
                 val embeddings = handler.embedBatch(texts)
                 val validEmbeddings = embeddings.filterNotNull().map { it.toList() }
-                scope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     result.success(validEmbeddings)
                 }
             } catch (e: Exception) {
-                scope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     result.error("EMBED_BATCH_FAILED", e.message, null)
                 }
             }
@@ -156,30 +208,32 @@ class MainActivity : FlutterActivity() {
         scope.launch(Dispatchers.IO) {
             try {
                 val modelPath = args["modelPath"] as String
-                val supportedBackends = mutableListOf<String>()
 
-                for (pair in listOf(
+                val backendResults = listOf(
                     "gpu" to Backend.GPU(),
                     "npu" to Backend.NPU(),
                     "cpu" to Backend.CPU()
-                )) {
-                    val (name, backend) = pair
-                    try {
-                        val config = EngineConfig(modelPath = modelPath, backend = backend)
-                        val eng = Engine(config)
-                        eng.initialize()
-                        eng.close()
-                        supportedBackends.add(name)
-                    } catch (_: Exception) {}
-                }
+                ).map { (name, backend) ->
+                    async {
+                        try {
+                            val config = EngineConfig(modelPath = modelPath, backend = backend)
+                            val eng = Engine(config)
+                            eng.initialize()
+                            eng.close()
+                            name
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+                }.awaitAll().filterNotNull()
 
-                val metadata = mapOf("supportedBackends" to supportedBackends)
+                val metadata = mapOf("supportedBackends" to backendResults)
 
-                scope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     result.success(metadata)
                 }
             } catch (e: Exception) {
-                scope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     result.error("METADATA_FAILED", e.message, null)
                 }
             }
@@ -217,11 +271,11 @@ class MainActivity : FlutterActivity() {
                 val conv = eng.createConversation()
                 conversation = conv
 
-                scope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     result.success(true)
                 }
             } catch (e: Exception) {
-                scope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     result.error("LOAD_FAILED", e.message, null)
                 }
             }
@@ -255,11 +309,11 @@ class MainActivity : FlutterActivity() {
                 val response = conv.sendMessage(content)
                 val text = response.toString()
 
-                scope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     result.success(text)
                 }
             } catch (e: Exception) {
-                scope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     result.error("GENERATION_FAILED", e.message, null)
                 }
             }
@@ -284,24 +338,24 @@ class MainActivity : FlutterActivity() {
 
                 conv.sendMessageAsync(content)
                     .catch { e ->
-                        scope.launch(Dispatchers.Main) {
+                        withContext(Dispatchers.Main) {
                             eventSink?.success(mapOf("error" to (e.message ?: "Unknown error")))
                         }
                     }
                     .collect { message ->
                         val text = message.toString()
                         if (text.isNotEmpty()) {
-                            scope.launch(Dispatchers.Main) {
+                            withContext(Dispatchers.Main) {
                                 eventSink?.success(mapOf("text" to text))
                             }
                         }
                     }
 
-                scope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     eventSink?.success(mapOf("done" to true))
                 }
             } catch (e: Exception) {
-                scope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     eventSink?.success(mapOf("error" to (e.message ?: "Unknown error")))
                 }
             }

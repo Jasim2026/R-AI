@@ -20,14 +20,6 @@ class ModelImportScreen extends StatefulWidget {
 class _ModelImportScreenState extends State<ModelImportScreen> {
   bool _isImporting = false;
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ModelProvider>().loadModels();
-    });
-  }
-
   Future<void> _importModel() async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -45,10 +37,8 @@ class _ModelImportScreenState extends State<ModelImportScreen> {
       ModelMetadata? metadata;
       if (file.name.endsWith('.litertlm')) {
         try {
-          final service = LiteRTService();
-          await service.initialize();
-          metadata = await service.readModelMetadata(file.path!);
-          service.dispose();
+          final litertService = context.read<LiteRTService>();
+          metadata = await litertService.readModelMetadata(file.path!);
         } catch (e) {
           debugPrint('Failed to read model metadata: $e');
         }
