@@ -30,7 +30,7 @@ class KeywordSearchEngine {
     'find', 'found', 'want', 'wanted', 'need', 'needed', 'try', 'tried',
     'keep', 'kept', 'let', 'put', 'set', 'run', 'move', 'live', 'feel',
     'left', 'right', 'good', 'bad', 'new', 'old', 'first', 'last',
-    'long', 'great', 'little', 'own', 'next', 'high', 'small', 'large',
+    'long', 'great', 'little', 'next', 'high', 'small', 'large',
   };
 
   /// Tokenize text into lowercase word stems.
