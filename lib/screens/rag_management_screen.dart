@@ -861,7 +861,7 @@ class _DocumentsTab extends StatelessWidget {
             );
             if (db == null || !context.mounted) return;
 
-            // Pass bytes directly — required on mobile per file_picker docs
+            // Write DB bytes to user-selected location
             final srcPath = db.filePath;
             final srcFile = File(srcPath);
             if (!await srcFile.exists()) {
@@ -880,13 +880,29 @@ class _DocumentsTab extends StatelessWidget {
             final result = await FilePicker.platform.saveFile(
               dialogTitle: 'Export Database',
               fileName: '${db.name}.db',
-              bytes: Uint8List.fromList(fileBytes),
               type: FileType.custom,
               allowedExtensions: ['db'],
             );
             if (!context.mounted) return;
 
             if (result != null) {
+              try {
+                // Write bytes to the selected location
+                await File(result).writeAsBytes(fileBytes);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Exported to $result', style: AppColors.font(size: 12)),
+                    backgroundColor: AppColors.success,
+                  ),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Export failed: $e', style: AppColors.font(size: 12)),
+                    backgroundColor: AppColors.error,
+                  ),
+                );
+              }
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Exported: ${db.name}.db', style: AppColors.font(size: 12)),

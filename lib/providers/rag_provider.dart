@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../models/vector_db.dart';
 import '../models/vector_chunk.dart';
+import '../models/message.dart';
 import '../services/vector_db_service.dart';
 import '../services/keyword_db_service.dart';
 import '../services/keyword_search_engine.dart';

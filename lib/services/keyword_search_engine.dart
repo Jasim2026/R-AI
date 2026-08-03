@@ -23,7 +23,7 @@ class KeywordSearchEngine {
     'about', 'into', 'over', 'after', 'before', 'between', 'under',
     'again', 'once', 'only', 'even', 'still', 'already', 'always',
     'never', 'often', 'sometimes', 'usually', 'now', 'well', 'yes',
-    'no', 'maybe', 'thing', 'things', 'way', 'ways', 'much', 'many',
+    'maybe', 'thing', 'things', 'way', 'ways', 'much', 'many',
     'make', 'made', 'get', 'got', 'going', 'went', 'come', 'came',
     'take', 'took', 'give', 'gave', 'say', 'said', 'tell', 'told',
     'know', 'knew', 'think', 'thought', 'see', 'saw', 'use', 'used',
@@ -169,7 +169,7 @@ class KeywordSearchEngine {
 
     // Step 3: Unique-word diversity analysis
     final queryTermSet = queryTerms.toSet();
-    final top3ChunkTerms = top3.map((e) => tokenizedChunks[e.chunk.id]?.toSet() ?? <String>{}).toList();
+    final top3ChunkTerms = top3.map((e) => tokenizedChunks[e.$1.id]?.toSet() ?? <String>{}).toList();
 
     for (var i = 0; i < top3Count; i++) {
       final myTerms = top3ChunkTerms[i];
@@ -192,8 +192,8 @@ class KeywordSearchEngine {
         // Apply bonus to the top candidate with unique words
       }
       // Store unique count for bonus application
-      scored[scored.indexWhere((s) => s.chunk.id == top3[i].chunk.id)] =
-          (top3[i].chunk, top3[i].$2 * (1.0 + uniqueCount * 0.5));
+      scored[scored.indexWhere((s) => s.$1.id == top3[i].$1.id)] =
+          (top3[i].$1, top3[i].$2 * (1.0 + uniqueCount * 0.5));
     }
 
     // Step 5: Re-sort after diversity bonus
@@ -201,11 +201,11 @@ class KeywordSearchEngine {
 
     // Return top-K
     final results = scored.take(topK).map((e) => KeywordSearchResult(
-      chunkId: e.chunk.id,
-      text: e.chunk.text,
+      chunkId: e.$1.id,
+      text: e.$1.text,
       score: e.$2,
-      dbName: e.chunk.dbName,
-      source: e.chunk.source,
+      dbName: e.$1.dbName,
+      source: e.$1.source,
     )).toList();
 
     return results;
