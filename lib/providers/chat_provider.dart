@@ -439,7 +439,8 @@ class ChatProvider extends ChangeNotifier {
           _logService.log('ChatProvider', 'RAG search: topK=$topK');
 
           // Cache dynamic default min score for this query (for seekbar UI)
-          _cacheService.cacheDefaultMinScore(userContent);
+          final chunkCount = await _ragProvider!.keywordDbTotalChunks();
+          _cacheService.cacheDefaultMinScore(userContent, chunkCount: chunkCount);
 
           // Show RAG progress
           _isRagSearching = true;
@@ -459,15 +460,23 @@ class ChatProvider extends ChangeNotifier {
 
           List<dynamic> searchResults;
           if (isKeywordMode) {
-            // Keyword search — no embedding model needed
-            final minScore = _cacheService.ragMinScore;
-            _logService.log('ChatProvider', 'Keyword search minScore=$minScore');
-            searchResults = await _ragProvider!.searchKeyword(
+            // Keyword search — percentage-based threshold
+            final pct = _cacheService.ragMinScorePercent;
+            _logService.log('ChatProvider', 'Keyword search threshold=$pct%');
+            final dbNames = _selectedRagDbNames.isEmpty ? null : _selectedRagDbNames;
+            // Get all results to compute max score for percentage normalization
+            final allResults = await _ragProvider!.searchKeywordAll(
               query: userContent,
-              topK: topK,
-              minScore: minScore,
-              dbNames: _selectedRagDbNames.isEmpty ? null : _selectedRagDbNames,
+              dbNames: dbNames,
             );
+            if (allResults.isEmpty) {
+              searchResults = [];
+            } else {
+              final maxScore = allResults.first.score;
+              final threshold = maxScore * (pct / 100.0);
+              _logService.log('ChatProvider', 'Keyword maxScore=${maxScore.toStringAsFixed(2)}, threshold=${threshold.toStringAsFixed(2)}');
+              searchResults = allResults.where((r) => r.score >= threshold).take(topK).toList();
+            }
           } else {
             // Vector search — requires embedding model
             searchResults = await _ragProvider!.search(
@@ -580,12 +589,19 @@ class ChatProvider extends ChangeNotifier {
 
             List<dynamic> postResults;
             if (isKwMode) {
-              postResults = await _ragProvider!.searchKeyword(
+              final pct = _cacheService.ragMinScorePercent;
+              final dbNames = _selectedRagDbNames.isEmpty ? null : _selectedRagDbNames;
+              final allResults = await _ragProvider!.searchKeywordAll(
                 query: userContent,
-                topK: topK,
-                minScore: _cacheService.ragMinScore,
-                dbNames: _selectedRagDbNames.isEmpty ? null : _selectedRagDbNames,
+                dbNames: dbNames,
               );
+              if (allResults.isEmpty) {
+                postResults = [];
+              } else {
+                final maxScore = allResults.first.score;
+                final threshold = maxScore * (pct / 100.0);
+                postResults = allResults.where((r) => r.score >= threshold).take(topK).toList();
+              }
             } else {
               postResults = await _ragProvider!.search(
                 query: userContent,

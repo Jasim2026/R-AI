@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/chat_provider.dart';
 import '../services/cache_service.dart';
+import '../services/keyword_db_service.dart';
+import '../services/keyword_search_engine.dart';
 import '../utils/theme.dart';
 
 class ChatInput extends StatefulWidget {
@@ -18,19 +21,60 @@ class _ChatInputState extends State<ChatInput> {
   bool _hasText = false;
   bool _showThresholdPanel = false;
 
+  // Live preview state
+  Timer? _debounce;
+  List<KeywordSearchResult> _liveResults = [];
+  bool _liveSearching = false;
+
   @override
   void initState() {
     super.initState();
-    _controller.addListener(() {
-      final hasText = _controller.text.trim().isNotEmpty;
-      if (hasText != _hasText) {
-        setState(() => _hasText = hasText);
+    _controller.addListener(_onInputChanged);
+  }
+
+  void _onInputChanged() {
+    final hasText = _controller.text.trim().isNotEmpty;
+    if (hasText != _hasText) {
+      setState(() => _hasText = hasText);
+    }
+    // Debounced live search for threshold preview
+    if (_showThresholdPanel) {
+      _debounce?.cancel();
+      if (_controller.text.trim().length >= 2) {
+        _debounce = Timer(const Duration(milliseconds: 300), _runLiveSearch);
+      } else {
+        setState(() => _liveResults = []);
       }
-    });
+    }
+  }
+
+  Future<void> _runLiveSearch() async {
+    final query = _controller.text.trim();
+    if (query.length < 2 || !_showThresholdPanel) return;
+
+    setState(() => _liveSearching = true);
+    try {
+      final cacheService = context.read<CacheService>();
+      final selectedDbs = cacheService.selectedRagDbList;
+      final results = await KeywordDbService.searchAll(
+        query: query,
+        dbNames: selectedDbs.isEmpty ? null : selectedDbs,
+      );
+      if (mounted) {
+        setState(() {
+          _liveResults = results;
+          _liveSearching = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _liveSearching = false);
+    }
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    _controller.removeListener(_onInputChanged);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -159,7 +203,6 @@ class _ChatInputState extends State<ChatInput> {
                   ),
                   child: Row(
                     children: [
-                      // Animated icon
                       AnimatedSwitcher(
                         duration: const Duration(milliseconds: 300),
                         child: Icon(
@@ -170,7 +213,6 @@ class _ChatInputState extends State<ChatInput> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      // Status text
                       Expanded(
                         child: Text(
                           _statusIcon(chatProvider.generationStatus),
@@ -181,7 +223,6 @@ class _ChatInputState extends State<ChatInput> {
                           ),
                         ),
                       ),
-                      // Token count during streaming
                       if (chatProvider.generationStatus == GenerationStatus.streamingTokens &&
                           chatProvider.tokenCount > 0)
                         Container(
@@ -203,78 +244,82 @@ class _ChatInputState extends State<ChatInput> {
                   ),
                 ),
               ),
-            // RAG chunk toolbar — shows last used context DBs and chunk IDs + threshold control
+            // RAG chunk toolbar with threshold control
             if (!isBusy)
               chatProvider.lastRagChunkIds != null && chatProvider.lastRagChunkIds!.isNotEmpty
-                  ? Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: AppColors.accent.withOpacity(0.06),
-                            border: Border(
-                              top: BorderSide(
-                                color: AppColors.accent.withOpacity(0.15),
-                                width: 0.5,
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.accent.withOpacity(0.06),
+                        border: Border(
+                          top: BorderSide(
+                            color: AppColors.accent.withOpacity(0.15),
+                            width: 0.5,
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.bookmark_outline,
+                            size: 12,
+                            color: AppColors.accent.withOpacity(0.7),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '${chatProvider.lastRagDbNames ?? ""}  •  ${chatProvider.lastRagChunkIds}',
+                              style: AppColors.font(
+                                size: 10,
+                                color: AppColors.accent.withOpacity(0.7),
+                                weight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          // Threshold toggle icon button
+                          GestureDetector(
+                            onTap: () {
+                              HapticFeedback.lightImpact();
+                              setState(() {
+                                _showThresholdPanel = !_showThresholdPanel;
+                                if (_showThresholdPanel && _controller.text.trim().length >= 2) {
+                                  _runLiveSearch();
+                                }
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: _showThresholdPanel
+                                    ? AppColors.accent.withOpacity(0.15)
+                                    : AppColors.accent.withOpacity(0.08),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Icon(
+                                _showThresholdPanel ? Icons.close : Icons.tune,
+                                size: 14,
+                                color: AppColors.accent.withOpacity(0.8),
                               ),
                             ),
                           ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.bookmark_outline,
-                                size: 12,
-                                color: AppColors.accent.withOpacity(0.7),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  '${chatProvider.lastRagDbNames ?? ""}  •  ${chatProvider.lastRagChunkIds}',
-                                  style: AppColors.font(
-                                    size: 10,
-                                    color: AppColors.accent.withOpacity(0.7),
-                                    weight: FontWeight.w500,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              // Threshold dropdown toggle button
-                              GestureDetector(
-                                onTap: () {
-                                  HapticFeedback.lightImpact();
-                                  setState(() => _showThresholdPanel = !_showThresholdPanel);
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    color: _showThresholdPanel
-                                        ? AppColors.accent.withOpacity(0.15)
-                                        : AppColors.accent.withOpacity(0.08),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Icon(
-                                    _showThresholdPanel
-                                        ? Icons.expand_less
-                                        : Icons.tune,
-                                    size: 14,
-                                    color: AppColors.accent.withOpacity(0.8),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        // Threshold seekbar panel (expands below)
-                        if (_showThresholdPanel)
-                          _ThresholdPanel(
-                            chatProvider: chatProvider,
-                            cacheService: context.read<CacheService>(),
-                          ),
-                      ],
+                        ],
+                      ),
                     )
                   : const SizedBox.shrink(),
+            // Threshold seekbar panel — slides UP between toolbar and input
+            if (_showThresholdPanel && !isBusy)
+              _ThresholdPanel(
+                liveResults: _liveResults,
+                isSearching: _liveSearching,
+                currentText: _controller.text,
+                cacheService: context.read<CacheService>(),
+                onThresholdChanged: () {
+                  // Trigger rebuild to update filtered count
+                  setState(() {});
+                },
+              ),
             // Input area
             Container(
               padding: EdgeInsets.only(
@@ -313,30 +358,24 @@ class _ChatInputState extends State<ChatInput> {
                         focusNode: _focusNode,
                         maxLines: null,
                         textInputAction: TextInputAction.newline,
-                        style: AppColors.font(size: 14),
+                        style: AppColors.font(size: 14, color: AppColors.textPrimary),
                         decoration: InputDecoration(
-                          hintText: 'Message R-AI...',
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          filled: false,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 10,
-                          ),
+                          hintText: 'Message...',
                           hintStyle: AppColors.font(
                             size: 14,
                             color: AppColors.textHint.withOpacity(0.5),
                           ),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
                         ),
-                        onSubmitted: (_) => _send(),
                       ),
                     ),
                   ),
                   const SizedBox(width: 6),
-                  chatProvider.isGenerating
-                      ? _buildStopButton(chatProvider)
-                      : _buildSendButton(),
+                  !isBusy ? _buildSendButton() : _buildStopButton(chatProvider),
                 ],
               ),
             ),
@@ -387,14 +426,21 @@ class _ChatInputState extends State<ChatInput> {
   }
 }
 
-// Inline seekbar panel for adjusting keyword RAG similarity threshold
+/// Slide-up panel for adjusting keyword RAG similarity threshold (percentage).
+/// Shows live preview of what would be retrieved for the current input text.
 class _ThresholdPanel extends StatefulWidget {
-  final ChatProvider chatProvider;
+  final List<KeywordSearchResult> liveResults;
+  final bool isSearching;
+  final String currentText;
   final CacheService cacheService;
+  final VoidCallback onThresholdChanged;
 
   const _ThresholdPanel({
-    required this.chatProvider,
+    required this.liveResults,
+    required this.isSearching,
+    required this.currentText,
     required this.cacheService,
+    required this.onThresholdChanged,
   });
 
   @override
@@ -402,31 +448,35 @@ class _ThresholdPanel extends StatefulWidget {
 }
 
 class _ThresholdPanelState extends State<_ThresholdPanel> {
-  late double _currentValue;
-  late bool _isOverridden;
+  late double _currentPct;
 
-  // BM25 practical score range for seekbar
   static const double _min = 0.0;
-  static const double _max = 30.0;
+  static const double _max = 100.0;
 
   @override
   void initState() {
     super.initState();
-    _isOverridden = widget.cacheService.ragMinScoreOverridden;
-    _currentValue = widget.cacheService.ragMinScore;
-    _clamp();
+    _currentPct = widget.cacheService.ragMinScorePercent;
   }
 
-  void _clamp() {
-    if (_currentValue < _min) _currentValue = _min;
-    if (_currentValue > _max) _currentValue = _max;
+  @override
+  void didUpdateWidget(covariant _ThresholdPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sync if externally changed
+    if (oldWidget.cacheService.ragMinScorePercent != widget.cacheService.ragMinScorePercent) {
+      _currentPct = widget.cacheService.ragMinScorePercent;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final contexts = widget.chatProvider.lastRagContexts;
-    final passingCount = contexts.where((c) => c.score >= _currentValue).length;
-    final totalCount = contexts.length;
+    final results = widget.liveResults;
+    final hasResults = results.isNotEmpty;
+    final maxScore = hasResults ? results.first.score : 0.0;
+    final threshold = maxScore * (_currentPct / 100.0);
+    final passingCount = results.where((r) => r.score >= threshold).length;
+    final totalCount = results.length;
+    final passing = results.where((r) => r.score >= threshold).take(3).toList();
 
     return AnimatedSize(
       duration: const Duration(milliseconds: 200),
@@ -436,7 +486,7 @@ class _ThresholdPanelState extends State<_ThresholdPanel> {
         decoration: BoxDecoration(
           color: AppColors.accent.withOpacity(0.04),
           border: Border(
-            top: BorderSide(
+            bottom: BorderSide(
               color: AppColors.accent.withOpacity(0.1),
               width: 0.5,
             ),
@@ -476,26 +526,26 @@ class _ThresholdPanelState extends State<_ThresholdPanel> {
                       overlayColor: AppColors.accent.withOpacity(0.1),
                     ),
                     child: Slider(
-                      value: _currentValue,
+                      value: _currentPct,
                       min: _min,
                       max: _max,
-                      divisions: 60,
+                      divisions: 100,
                       onChanged: (v) {
-                        setState(() => _currentValue = v);
+                        setState(() => _currentPct = v);
                       },
                       onChangeEnd: (v) {
-                        // Persist on release
-                        widget.cacheService.ragMinScore = v;
+                        widget.cacheService.ragMinScorePercent = v;
                         HapticFeedback.selectionClick();
+                        widget.onThresholdChanged();
                       },
                     ),
                   ),
                 ),
                 const SizedBox(width: 4),
                 SizedBox(
-                  width: 30,
+                  width: 34,
                   child: Text(
-                    _currentValue.toStringAsFixed(1),
+                    '${_currentPct.round()}%',
                     style: AppColors.font(
                       size: 10,
                       color: AppColors.accent,
@@ -506,30 +556,41 @@ class _ThresholdPanelState extends State<_ThresholdPanel> {
                 ),
               ],
             ),
-            // Passing chunks preview
-            if (contexts.isNotEmpty) ...[
-              const SizedBox(height: 4),
+            // Live preview header
+            if (widget.currentText.trim().length >= 2) ...[
+              const SizedBox(height: 2),
               Row(
                 children: [
-                  Text(
-                    '$passingCount/$totalCount pass',
-                    style: AppColors.font(
-                      size: 9,
-                      color: AppColors.textSecondary.withOpacity(0.5),
-                      weight: FontWeight.w500,
+                  if (widget.isSearching)
+                    SizedBox(
+                      width: 8,
+                      height: 8,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        color: AppColors.accent.withOpacity(0.5),
+                      ),
+                    )
+                  else
+                    Text(
+                      hasResults
+                          ? '$passingCount/$totalCount pass  •  max ${maxScore.toStringAsFixed(1)}'
+                          : 'no matches',
+                      style: AppColors.font(
+                        size: 9,
+                        color: AppColors.textSecondary.withOpacity(0.5),
+                        weight: FontWeight.w500,
+                      ),
                     ),
-                  ),
                   const Spacer(),
-                  if (_isOverridden)
+                  if (widget.cacheService.ragMinScoreOverridden)
                     GestureDetector(
                       onTap: () {
-                        // Reset to dynamic default
-                        final query = widget.chatProvider.lastRagChunkIds ?? '';
-                        widget.cacheService.ragMinScore = CacheService.computeDefaultMinScore(query);
-                        setState(() {
-                          _currentValue = widget.cacheService.ragMinScore;
-                          _isOverridden = false;
-                        });
+                        // Reset to dynamic default for current query
+                        widget.cacheService.ragMinScorePercent =
+                            CacheService.computeDefaultThresholdPercent(
+                          widget.currentText,
+                        );
+                        setState(() => _currentPct = widget.cacheService.ragMinScorePercent);
                       },
                       child: Text(
                         'reset',
@@ -542,39 +603,38 @@ class _ThresholdPanelState extends State<_ThresholdPanel> {
                     ),
                 ],
               ),
-              const SizedBox(height: 2),
-              // Show up to 3 passing chunks
-              ...contexts
-                  .where((c) => c.score >= _currentValue)
-                  .take(3)
-                  .map((c) => Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 3,
-                              height: 3,
-                              decoration: BoxDecoration(
-                                color: AppColors.accent.withOpacity(0.5),
-                                shape: BoxShape.circle,
-                              ),
+              // Passing chunks preview
+              if (passing.isNotEmpty) ...[
+                const SizedBox(height: 3),
+                ...passing.map((r) => Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 3,
+                            height: 3,
+                            decoration: BoxDecoration(
+                              color: AppColors.accent.withOpacity(0.5),
+                              shape: BoxShape.circle,
                             ),
-                            const SizedBox(width: 5),
-                            Expanded(
-                              child: Text(
-                                '${c.dbName}#${c.chunkId}  ${c.score.toStringAsFixed(1)}  ${c.text.length > 40 ? c.text.substring(0, 40) + '...' : c.text}',
-                                style: AppColors.font(
-                                  size: 8,
-                                  color: AppColors.textSecondary.withOpacity(0.6),
-                                  weight: FontWeight.w400,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              '${r.dbName}#${r.chunkId}  ${r.score.toStringAsFixed(1)}  ${r.text.length > 40 ? r.text.substring(0, 40) + '...' : r.text}',
+                              style: AppColors.font(
+                                size: 8,
+                                color: AppColors.textSecondary.withOpacity(0.6),
+                                weight: FontWeight.w400,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ],
-                        ),
-                      )),
+                          ),
+                        ],
+                      ),
+                    )),
+              ],
             ],
           ],
         ),

@@ -304,6 +304,28 @@ class RagProvider extends ChangeNotifier {
     }
   }
 
+  /// Search all chunks (no limit, no filter) for live preview + percentage computation.
+  Future<List<KeywordSearchResult>> searchKeywordAll({
+    required String query,
+    List<String>? dbNames,
+  }) async {
+    try {
+      return await KeywordDbService.searchAll(query: query, dbNames: dbNames);
+    } catch (e, stackTrace) {
+      _logService.logError('RagProvider', 'searchKeywordAll failed', e, stackTrace);
+      return [];
+    }
+  }
+
+  /// Total chunk count across all keyword DBs (for default threshold estimation).
+  Future<int> keywordDbTotalChunks() async {
+    try {
+      return await KeywordDbService.totalCount();
+    } catch (e) {
+      return 0;
+    }
+  }
+
   Future<List<VectorSearchResult>> search({
     required String query,
     List<String>? dbPaths,

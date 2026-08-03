@@ -104,17 +104,21 @@ class CacheService {
   String get ragMode => _prefs.getString('rag_mode') ?? 'pre_generation';
   set ragMode(String value) => _prefs.setString('rag_mode', value);
 
-  // Keyword RAG minimum similarity threshold (BM25 score)
-  // Default is computed dynamically based on query complexity
-  double get ragMinScore => _prefs.getDouble('rag_min_score') ?? _defaultMinScore;
-  set ragMinScore(double value) => _prefs.setDouble('rag_min_score', value);
+  // Keyword RAG minimum similarity threshold (percentage 0-100)
+  // Represents % of max BM25 score; higher = stricter filtering
+  double get ragMinScorePercent => _prefs.getDouble('rag_min_score_pct') ?? _defaultMinScorePercent;
+  set ragMinScorePercent(double value) => _prefs.setDouble('rag_min_score_pct', value);
 
-  bool get ragMinScoreOverridden => _prefs.containsKey('rag_min_score');
+  bool get ragMinScoreOverridden => _prefs.containsKey('rag_min_score_pct');
 
-  /// Compute dynamic default minScore based on query keyword density.
-  /// More meaningful keywords → higher threshold to filter noise.
-  static double computeDefaultMinScore(String query) {
-    // Stopwords to exclude (same set as KeywordSearchEngine)
+  /// Compute dynamic default threshold percentage based on query + DB size.
+  ///
+  /// Algorithm:
+  ///   - Few keywords (1-2): lower % (15%) — cast wider net
+  ///   - Moderate keywords (3-4): 25%
+  ///   - Many keywords (5+): 35% — strong signal, filter harder
+  ///   - Large DB (>500 chunks): +5% boost — more noise to filter
+  static double computeDefaultThresholdPercent(String query, {int chunkCount = 0}) {
     const stopwords = {
       'a','an','the','and','or','but','if','in','on','at','to','for','of','with',
       'by','from','as','is','was','are','were','be','been','being','have','has',
@@ -136,27 +140,32 @@ class CacheService {
         .where((w) => w.length >= 2 && !stopwords.contains(w))
         .toList();
 
-    final keywordCount = words.length;
+    final kw = words.length;
 
-    // Sweet-spot algorithm:
-    // 0-2 keywords  → low threshold (0.5)  — few terms, cast wide net
-    // 3-4 keywords  → moderate (2.0)       — enough signal to filter
-    // 5-6 keywords  → high (4.0)           — strong signal, filter noise
-    // 7+ keywords   → aggressive (6.0)     — very specific query
-    if (keywordCount <= 2) return 0.5;
-    if (keywordCount <= 4) return 2.0;
-    if (keywordCount <= 6) return 4.0;
-    return 6.0;
+    // Base percentage from keyword count
+    double pct;
+    if (kw <= 2) {
+      pct = 15.0;
+    } else if (kw <= 4) {
+      pct = 25.0;
+    } else {
+      pct = 35.0;
+    }
+
+    // Large DB boost — more chunks means more noise, raise threshold
+    if (chunkCount > 500) pct += 5.0;
+    if (chunkCount > 1000) pct += 5.0;
+
+    return pct.clamp(5.0, 80.0);
   }
 
-  double get _defaultMinScore {
-    // Use last query's computed default if available, otherwise 2.0
-    return _prefs.getDouble('rag_default_min_score') ?? 2.0;
+  double get _defaultMinScorePercent {
+    return _prefs.getDouble('rag_default_min_score_pct') ?? 20.0;
   }
 
   /// Cache the computed default for the current query so seekbar starts at the right spot
-  void cacheDefaultMinScore(String query) {
-    _prefs.setDouble('rag_default_min_score', computeDefaultMinScore(query));
+  void cacheDefaultMinScore(String query, {int chunkCount = 0}) {
+    _prefs.setDouble('rag_default_min_score_pct', computeDefaultThresholdPercent(query, chunkCount: chunkCount));
   }
 
   bool get toolCallingEnabled => _prefs.getBool('tool_calling_enabled') ?? false;

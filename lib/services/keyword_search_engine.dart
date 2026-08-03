@@ -210,6 +210,59 @@ class KeywordSearchEngine {
 
     return results;
   }
+
+  /// Search all chunks and return every scored result (no minScore, no topK limit).
+  /// Used for live preview and percentage-based threshold computation.
+  static List<KeywordSearchResult> searchAll({
+    required String query,
+    required List<KeywordChunk> chunks,
+  }) {
+    if (query.trim().isEmpty || chunks.isEmpty) return [];
+
+    final queryTerms = tokenize(query);
+    if (queryTerms.isEmpty) return [];
+
+    final docFrequency = <String, int>{};
+    final tokenizedChunks = <int, List<String>>{};
+
+    for (final chunk in chunks) {
+      final terms = tokenize(chunk.text);
+      tokenizedChunks[chunk.id] = terms;
+      final seen = <String>{};
+      for (final term in terms) {
+        if (!seen.contains(term)) {
+          docFrequency[term] = (docFrequency[term] ?? 0) + 1;
+          seen.add(term);
+        }
+      }
+    }
+
+    final totalTerms = tokenizedChunks.values.fold<int>(0, (sum, t) => sum + t.length);
+    final avgDocLength = chunks.isNotEmpty ? totalTerms / chunks.length : 1.0;
+
+    final results = <KeywordSearchResult>[];
+    for (final chunk in chunks) {
+      final terms = tokenizedChunks[chunk.id] ?? [];
+      final score = bm25Score(
+        queryTerms: queryTerms,
+        docTerms: terms,
+        docLength: terms.length,
+        avgDocLength: avgDocLength,
+        totalDocs: chunks.length,
+        docFrequency: docFrequency,
+      );
+      results.add(KeywordSearchResult(
+        chunkId: chunk.id,
+        text: chunk.text,
+        score: score,
+        dbName: chunk.dbName,
+        source: chunk.source,
+      ));
+    }
+
+    results.sort((a, b) => b.score.compareTo(a.score));
+    return results;
+  }
 }
 
 /// A chunk for keyword search (text-only, no vectors).

@@ -171,6 +171,51 @@ class KeywordDbService {
     return results;
   }
 
+  /// Search all chunks and return every scored result (no filter, no limit).
+  /// Used for live preview and percentage threshold computation.
+  static Future<List<KeywordSearchResult>> searchAll({
+    required String query,
+    List<String>? dbNames,
+  }) async {
+    final db = await _getDb();
+
+    List<String> targetDbs;
+    if (dbNames != null && dbNames.isNotEmpty) {
+      targetDbs = dbNames;
+    } else {
+      targetDbs = await listDbs();
+    }
+
+    if (targetDbs.isEmpty) return [];
+
+    final allChunks = <KeywordChunk>[];
+    for (final dbName in targetDbs) {
+      final rows = await db.query(
+        'chunks',
+        where: 'db_name = ?',
+        whereArgs: [dbName],
+        orderBy: 'chunk_idx ASC',
+      );
+      for (final row in rows) {
+        allChunks.add(KeywordChunk(
+          id: row['chunk_idx'] as int,
+          text: row['text'] as String,
+          dbName: dbName,
+          source: row['source'] as String? ?? '',
+        ));
+      }
+    }
+
+    return KeywordSearchEngine.searchAll(query: query, chunks: allChunks);
+  }
+
+  /// Count total chunks across all DBs (for default threshold estimation).
+  static Future<int> totalCount() async {
+    final db = await _getDb();
+    final result = await db.rawQuery('SELECT COUNT(*) as cnt FROM chunks');
+    return result.first['cnt'] as int;
+  }
+
   /// Delete all chunks for a DB.
   static Future<void> deleteDb(String dbName) async {
     _logService.log('KeywordDbService', 'Deleting DB: $dbName');
