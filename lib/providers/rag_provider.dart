@@ -1,23 +1,17 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../models/vector_db.dart';
 import '../models/vector_chunk.dart';
 import '../services/vector_db_service.dart';
 import '../services/text_chunker.dart';
 import '../services/log_service.dart';
+import '../services/ram_monitor_service.dart';
 import '../providers/embedding_model_provider.dart';
-
-// Top-level function for isolate chunking
-List<String> _chunkInIsolate(Map<String, dynamic> params) {
-  final text = params['text'] as String;
-  final chunkSize = params['chunkSize'] as int;
-  final chunkOverlap = params['chunkOverlap'] as int;
-  final chunker = TextChunker(chunkSize: chunkSize, overlap: chunkOverlap);
-  return chunker.chunk(text);
-}
 
 class RagProvider extends ChangeNotifier {
   final EmbeddingModelProvider _embeddingProvider;
   final LogService _logService;
+  final RamMonitorService _ramMonitor;
 
   List<VectorDb> _dbs = [];
   bool _isInitialized = false;
@@ -25,8 +19,10 @@ class RagProvider extends ChangeNotifier {
 
   RagProvider({
     required EmbeddingModelProvider embeddingProvider,
+    RamMonitorService? ramMonitor,
     LogService? logService,
   })  : _embeddingProvider = embeddingProvider,
+        _ramMonitor = ramMonitor ?? RamMonitorService(),
         _logService = logService ?? LogService();
 
   bool get isInitialized => _isInitialized;
@@ -37,6 +33,36 @@ class RagProvider extends ChangeNotifier {
   String? get error => _error;
   int get embeddingDimension => _embeddingProvider.embeddingDimension;
   EmbeddingModelProvider get embeddingProvider => _embeddingProvider;
+
+  /// Check if enough RAM is available before embedding.
+  /// Returns true if safe to proceed, false if should pause/abort.
+  Future<bool> _checkRamBeforeEmbed(int chunkIndex, int totalChunks) async {
+    final info = _ramMonitor.lastInfo;
+    if (info == null || info.totalGb == 0) return true; // can't check, proceed
+
+    final availableMb = (info.totalGb - info.usedGb) * 1024;
+    final usedPct = info.percentage;
+
+    _logService.log('RagProvider', 'RAM check before chunk $chunkIndex/$totalChunks: '
+        '${availableMb.toStringAsFixed(0)}MB available (${usedPct.toStringAsFixed(1)}% used)');
+
+    if (usedPct > 90) {
+      _logService.log('RagProvider', 'RAM CRITICAL (${usedPct.toStringAsFixed(1)}%) — forcing GC + pause');
+      // Force garbage collection hint
+      await Future.delayed(const Duration(milliseconds: 500));
+      // Re-check after pause
+      final recheck = _ramMonitor.lastInfo;
+      if (recheck != null && recheck.percentage > 92) {
+        _logService.log('RagProvider', 'RAM still critical after pause — aborting chunk $chunkIndex');
+        return false;
+      }
+    } else if (usedPct > 80) {
+      _logService.log('RagProvider', 'RAM high (${usedPct.toStringAsFixed(1)}%) — adding delay');
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    return true;
+  }
 
   Future<void> loadDatabases() async {
     _logService.log('RagProvider', 'Loading databases...');
@@ -94,25 +120,28 @@ class RagProvider extends ChangeNotifier {
     String source = '',
     int chunkSize = 500,
     int chunkOverlap = 50,
+    String? separator,
     void Function(int current, int total, String chunkPreview)? onProgress,
   }) async {
     _logService.log('RagProvider', 'Processing text for DB: $dbPath');
     _logService.log('RagProvider', 'Text length: ${text.length} chars | source: ${source.isEmpty ? "(none)" : source}');
-    _logService.log('RagProvider', 'Chunk size: $chunkSize | overlap: $chunkOverlap');
+    _logService.log('RagProvider', 'Chunk size: $chunkSize | overlap: $chunkOverlap | separator: ${separator ?? "(none)"}');
 
     if (!_embeddingProvider.isLoaded) {
       _logService.log('RagProvider', 'ERROR: Embedding model not loaded');
       throw Exception('Embedding model not loaded');
     }
 
-    // Run chunking in an isolate to keep UI responsive
-    _logService.log('RagProvider', 'Running chunking in isolate...');
-    final chunks = await compute(_chunkInIsolate, {
-      'text': text,
-      'chunkSize': chunkSize,
-      'chunkOverlap': chunkOverlap,
-    });
-    _logService.log('RagProvider', 'Text chunked into ${chunks.length} chunks (via isolate)');
+    // Chunk synchronously on main thread — compute() COPIES the entire string
+    // to the isolate which doubles memory usage and causes OOM on large texts.
+    _logService.log('RagProvider', 'Chunking text synchronously...');
+    final chunker = TextChunker(
+      chunkSize: chunkSize,
+      overlap: chunkOverlap,
+      delimiter: separator,
+    );
+    final chunks = chunker.chunk(text);
+    _logService.log('RagProvider', 'Text chunked into ${chunks.length} chunks');
 
     if (chunks.isEmpty) {
       _logService.log('RagProvider', 'No chunks generated, returning');
@@ -120,12 +149,21 @@ class RagProvider extends ChangeNotifier {
     }
 
     var totalEmbedded = 0;
+    var abortedDueToRam = false;
 
-    // Process ONE chunk at a time with memory monitoring
+    // Process ONE chunk at a time with aggressive memory management
     for (var i = 0; i < chunks.length; i++) {
       final chunk = chunks[i];
       final preview = chunk.length > 60 ? '${chunk.substring(0, 60)}...' : chunk;
       _logService.log('RagProvider', 'Processing chunk [$i/${chunks.length}]: $preview');
+
+      // RAM guard before every embed call
+      final ramOk = await _checkRamBeforeEmbed(i, chunks.length);
+      if (!ramOk) {
+        _logService.log('RagProvider', 'Aborting due to low RAM at chunk $i');
+        abortedDueToRam = true;
+        break;
+      }
 
       try {
         // 1. Embed single chunk
@@ -137,31 +175,37 @@ class RagProvider extends ChangeNotifier {
         totalEmbedded++;
         _logService.log('RagProvider', '  Stored in DB. Total: $totalEmbedded/${chunks.length}');
 
-        // 3. Clear intermediate data
-        final _ = vector;
+        // 3. Yield to UI every chunk (not just every 5)
+        await Future.delayed(const Duration(milliseconds: 20));
 
-        // 4. Progress callback with chunk preview
-        onProgress?.call(totalEmbedded, chunks.length, preview);
-
-        // 5. Yield to UI + check memory every 5 chunks
-        if (i % 5 == 0) {
-          await Future.delayed(const Duration(milliseconds: 50));
-          // Force GC hint
-          await Future.delayed(const Duration(milliseconds: 10));
-        }
-
-        // 6. Refresh DB list so UI shows updated chunk count
+        // 4. Refresh DB list so UI shows updated chunk count
         if (i % 3 == 0 || i == chunks.length - 1) {
           _dbs = await VectorDbService.listDbs();
           notifyListeners();
         }
+
+        // 5. Progress callback with chunk preview
+        onProgress?.call(totalEmbedded, chunks.length, preview);
       } catch (e, stackTrace) {
         _logService.logError('RagProvider', 'Failed to process chunk $i', e, stackTrace);
         _logService.log('RagProvider', 'Skipping chunk $i, continuing...');
+
+        // If error is OOM-related, abort entirely
+        final errStr = e.toString().toLowerCase();
+        if (errStr.contains('out of memory') || errStr.contains('oom') || errStr.contains('alloc')) {
+          _logService.log('RagProvider', 'OOM detected in embed — aborting remaining chunks');
+          abortedDueToRam = true;
+          break;
+        }
       }
     }
 
-    _logService.log('RagProvider', 'Text processing complete. Embedded: $totalEmbedded/${chunks.length}');
+    if (abortedDueToRam) {
+      _logService.log('RagProvider', 'Processing stopped due to memory constraints. Embedded: $totalEmbedded/${chunks.length}');
+    } else {
+      _logService.log('RagProvider', 'Text processing complete. Embedded: $totalEmbedded/${chunks.length}');
+    }
+
     _dbs = await VectorDbService.listDbs();
     notifyListeners();
   }
@@ -266,6 +310,13 @@ class RagProvider extends ChangeNotifier {
       final text = texts[i];
       _logService.log('RagProvider', 'Processing text [$i/${texts.length}]');
 
+      // RAM guard
+      final ramOk = await _checkRamBeforeEmbed(i, texts.length);
+      if (!ramOk) {
+        _logService.log('RagProvider', 'Aborting addTexts due to low RAM');
+        break;
+      }
+
       try {
         // 1. Embed single text
         final vector = await _embeddingProvider.embed(text);
@@ -275,7 +326,8 @@ class RagProvider extends ChangeNotifier {
         totalAdded++;
         _logService.log('RagProvider', '  Stored. Total: $totalAdded/${texts.length}');
 
-        // 3. Clear + refresh
+        // 3. Yield + refresh
+        await Future.delayed(const Duration(milliseconds: 20));
         _dbs = await VectorDbService.listDbs();
         notifyListeners();
       } catch (e, stackTrace) {

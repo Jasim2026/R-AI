@@ -88,6 +88,12 @@ class CacheService {
   int get chunkOverlap => _prefs.getInt('chunk_overlap') ?? 50;
   set chunkOverlap(int value) => _prefs.setInt('chunk_overlap', value);
 
+  bool get chunkAutoSize => _prefs.getBool('chunk_auto_size') ?? true;
+  set chunkAutoSize(bool value) => _prefs.setBool('chunk_auto_size', value);
+
+  String get chunkSeparator => _prefs.getString('chunk_separator') ?? '';
+  set chunkSeparator(String value) => _prefs.setString('chunk_separator', value);
+
   String get ragMode => _prefs.getString('rag_mode') ?? 'pre_generation';
   set ragMode(String value) => _prefs.setString('rag_mode', value);
 

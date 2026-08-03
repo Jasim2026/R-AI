@@ -465,6 +465,15 @@ class _DocumentsTab extends StatelessWidget {
     );
   }
 
+  int _computeAutoChunkSize(int fileSizeBytes) {
+    final sizeKb = fileSizeBytes / 1024;
+    if (sizeKb < 10) return 200;
+    if (sizeKb < 50) return 300;
+    if (sizeKb < 200) return 500;
+    if (sizeKb < 1000) return 700;
+    return 1000;
+  }
+
   Widget _buildWarningCard(String message) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -671,8 +680,11 @@ class _DocumentsTab extends StatelessWidget {
             if (dbName == null || dbName.isEmpty) return;
 
             final cacheService = context.read<CacheService>();
-            final chunkSize = cacheService.chunkSize;
+            final chunkSize = cacheService.chunkAutoSize
+                ? _computeAutoChunkSize(await File(file.path!).length())
+                : cacheService.chunkSize;
             final chunkOverlap = cacheService.chunkOverlap;
+            final separator = cacheService.chunkSeparator;
 
             // Show processing dialog
             if (!context.mounted) return;
@@ -685,6 +697,7 @@ class _DocumentsTab extends StatelessWidget {
                 dbName: dbName,
                 chunkSize: chunkSize,
                 chunkOverlap: chunkOverlap,
+                separator: separator,
               ),
             );
           },
@@ -881,27 +894,20 @@ class _DocumentsTab extends StatelessWidget {
   void _showAddTextDialog(BuildContext context, RagProvider provider) {
     final textController = TextEditingController();
     final nameController = TextEditingController();
-    final chunkSizeController = TextEditingController(text: context.read<CacheService>().chunkSize.toString());
+    final cache = context.read<CacheService>();
+    final chunkSizeController = TextEditingController(text: cache.chunkSize.toString());
+    bool autoChunkSize = cache.chunkAutoSize;
+    String separator = cache.chunkSeparator;
+    final separatorPresets = _RagSettingsTabState._separatorPresets;
 
     // Auto-detect chunk size based on text length
-    void autoDetectChunkSize() {
-      final len = textController.text.length;
-      int suggested;
-      if (len < 500) {
-        suggested = 200;
-      } else if (len < 2000) {
-        suggested = 300;
-      } else if (len < 10000) {
-        suggested = 500;
-      } else if (len < 50000) {
-        suggested = 700;
-      } else {
-        suggested = 1000;
-      }
-      chunkSizeController.text = suggested.toString();
+    int computeAutoChunkSize(int textLen) {
+      if (textLen < 500) return 200;
+      if (textLen < 2000) return 300;
+      if (textLen < 10000) return 500;
+      if (textLen < 50000) return 700;
+      return 1000;
     }
-
-    textController.addListener(autoDetectChunkSize);
 
     showDialog(
       context: context,
@@ -912,12 +918,6 @@ class _DocumentsTab extends StatelessWidget {
           width: double.maxFinite,
           child: StatefulBuilder(
             builder: (context, setDialogState) {
-              // Re-run auto-detect when text changes
-              textController.removeListener(autoDetectChunkSize);
-              textController.addListener(() {
-                autoDetectChunkSize();
-                setDialogState(() {});
-              });
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -940,30 +940,86 @@ class _DocumentsTab extends StatelessWidget {
                       filled: true,
                       fillColor: AppColors.surfaceLight,
                     ),
+                    onChanged: (_) {
+                      if (autoChunkSize) {
+                        final auto = computeAutoChunkSize(textController.text.length);
+                        chunkSizeController.text = auto.toString();
+                      }
+                      setDialogState(() {});
+                    },
                   ),
                   const SizedBox(height: 12),
+                  // Auto chunk size toggle
                   Row(
                     children: [
-                      Expanded(
-                        child: TextField(
-                          controller: chunkSizeController,
-                          keyboardType: TextInputType.number,
-                          style: AppColors.font(color: AppColors.textPrimary, size: 13),
-                          decoration: InputDecoration(
-                            labelText: 'Chunk size (auto-detected)',
-                            labelStyle: AppColors.font(size: 11, color: AppColors.textHint),
-                            filled: true,
-                            fillColor: AppColors.surfaceLight,
-                            isDense: true,
-                          ),
-                        ),
-                      ),
+                      Icon(Icons.auto_awesome, size: 16, color: AppColors.primary),
                       const SizedBox(width: 8),
-                      Text(
-                        '${textController.text.length} chars',
-                        style: AppColors.font(size: 11, color: AppColors.textHint),
+                      Text('Auto chunk size', style: AppColors.font(size: 12, color: AppColors.textPrimary)),
+                      const Spacer(),
+                      Switch(
+                        value: autoChunkSize,
+                        activeColor: AppColors.primary,
+                        onChanged: (v) {
+                          autoChunkSize = v;
+                          if (v) {
+                            final auto = computeAutoChunkSize(textController.text.length);
+                            chunkSizeController.text = auto.toString();
+                          }
+                          setDialogState(() {});
+                        },
                       ),
                     ],
+                  ),
+                  if (!autoChunkSize) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: chunkSizeController,
+                      keyboardType: TextInputType.number,
+                      style: AppColors.font(color: AppColors.textPrimary, size: 13),
+                      decoration: InputDecoration(
+                        labelText: 'Chunk size (chars)',
+                        labelStyle: AppColors.font(size: 11, color: AppColors.textHint),
+                        filled: true,
+                        fillColor: AppColors.surfaceLight,
+                        isDense: true,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  // Separator selector
+                  Row(
+                    children: [
+                      Icon(Icons.vertical_split, size: 16, color: AppColors.primary),
+                      const SizedBox(width: 8),
+                      Text('Split by', style: AppColors.font(size: 12, color: AppColors.textPrimary)),
+                      const Spacer(),
+                      DropdownButton<String>(
+                        value: separator,
+                        isDense: true,
+                        dropdownColor: AppColors.surface,
+                        style: AppColors.font(color: AppColors.textPrimary, size: 12),
+                        items: separatorPresets.where((p) => p['value'] != '__custom__').map((p) {
+                          return DropdownMenuItem(
+                            value: p['value'],
+                            child: Text(p['label']!, style: AppColors.font(size: 11)),
+                          );
+                        }).toList(),
+                        onChanged: (v) {
+                          if (v != null) {
+                            separator = v;
+                            setDialogState(() {});
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      '${textController.text.length} chars',
+                      style: AppColors.font(size: 11, color: AppColors.textHint),
+                    ),
                   ),
                 ],
               );
@@ -972,10 +1028,7 @@ class _DocumentsTab extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () {
-              textController.removeListener(autoDetectChunkSize);
-              Navigator.pop(context);
-            },
+            onPressed: () => Navigator.pop(context),
             child: Text('Cancel'),
           ),
           TextButton(
@@ -984,10 +1037,10 @@ class _DocumentsTab extends StatelessWidget {
               final name = nameController.text.trim();
               if (text.isEmpty || name.isEmpty) return;
 
-              final cacheService = context.read<CacheService>();
-              final chunkSize = int.tryParse(chunkSizeController.text) ?? cacheService.chunkSize;
+              final chunkSize = autoChunkSize
+                  ? computeAutoChunkSize(text.length)
+                  : (int.tryParse(chunkSizeController.text) ?? cache.chunkSize);
 
-              textController.removeListener(autoDetectChunkSize);
               Navigator.pop(context);
 
               String dbPath;
@@ -1006,7 +1059,8 @@ class _DocumentsTab extends StatelessWidget {
                 dbPath: dbPath,
                 text: text,
                 chunkSize: chunkSize,
-                chunkOverlap: cacheService.chunkOverlap,
+                chunkOverlap: cache.chunkOverlap,
+                separator: separator.isEmpty ? null : separator,
               );
             },
             child: Text('Process'),
@@ -1023,6 +1077,7 @@ class _ProcessingDialog extends StatefulWidget {
   final String dbName;
   final int chunkSize;
   final int chunkOverlap;
+  final String separator;
 
   const _ProcessingDialog({
     required this.provider,
@@ -1030,6 +1085,7 @@ class _ProcessingDialog extends StatefulWidget {
     required this.dbName,
     required this.chunkSize,
     required this.chunkOverlap,
+    this.separator = '',
   });
 
   @override
@@ -1073,6 +1129,7 @@ class _ProcessingDialogState extends State<_ProcessingDialog> {
         text: text,
         chunkSize: widget.chunkSize,
         chunkOverlap: widget.chunkOverlap,
+        separator: widget.separator.isEmpty ? null : widget.separator,
         onProgress: (current, total, chunkPreview) {
           if (mounted) {
             setState(() {
@@ -1185,6 +1242,8 @@ class _RagSettingsTabState extends State<_RagSettingsTab> {
   int _chunkSize = 500;
   int _chunkOverlap = 50;
   int _ragTopK = 5;
+  bool _chunkAutoSize = true;
+  String _chunkSeparator = '';
   bool _loaded = false;
 
   void _loadSettings(CacheService cache) {
@@ -1193,9 +1252,22 @@ class _RagSettingsTabState extends State<_RagSettingsTab> {
       _chunkSize = cache.chunkSize;
       _chunkOverlap = cache.chunkOverlap;
       _ragTopK = cache.ragTopK;
+      _chunkAutoSize = cache.chunkAutoSize;
+      _chunkSeparator = cache.chunkSeparator;
       _loaded = true;
     }
   }
+
+  static const _separatorPresets = [
+    {'label': 'Auto (word boundary)', 'value': ''},
+    {'label': 'New line (\\n)', 'value': '\n'},
+    {'label': 'Period (.)', 'value': '.'},
+    {'label': 'Comma (,)', 'value': ','},
+    {'label': 'Semicolon (;)', 'value': ';'},
+    {'label': 'Colon (:)', 'value': ':'},
+    {'label': 'Pipe (|)', 'value': '|'},
+    {'label': 'Custom', 'value': '__custom__'},
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -1241,20 +1313,36 @@ class _RagSettingsTabState extends State<_RagSettingsTab> {
             _buildSectionHeader('CHUNKING'),
             const SizedBox(height: 8),
             _buildSettingTile(
-              icon: Icons.straighten,
-              title: 'Chunk Size',
-              subtitle: '$_chunkSize characters',
-              child: Slider(
-                value: _chunkSize.toDouble(),
-                min: 100,
-                max: 2000,
-                divisions: 19,
+              icon: Icons.auto_awesome,
+              title: 'Auto Chunk Size',
+              subtitle: _chunkAutoSize ? 'Suggested by text length' : 'Manual: $_chunkSize chars',
+              child: Switch(
+                value: _chunkAutoSize,
+                activeColor: AppColors.primary,
                 onChanged: (v) {
-                  setState(() => _chunkSize = v.round());
-                  cache.chunkSize = v.round();
+                  setState(() => _chunkAutoSize = v);
+                  cache.chunkAutoSize = v;
                 },
               ),
             ),
+            if (!_chunkAutoSize) ...[
+              const SizedBox(height: 4),
+              _buildSettingTile(
+                icon: Icons.straighten,
+                title: 'Chunk Size',
+                subtitle: '$_chunkSize characters',
+                child: Slider(
+                  value: _chunkSize.toDouble(),
+                  min: 100,
+                  max: 2000,
+                  divisions: 19,
+                  onChanged: (v) {
+                    setState(() => _chunkSize = v.round());
+                    cache.chunkSize = v.round();
+                  },
+                ),
+              ),
+            ],
             _buildSettingTile(
               icon: Icons.view_agenda_outlined,
               title: 'Chunk Overlap',
@@ -1267,6 +1355,37 @@ class _RagSettingsTabState extends State<_RagSettingsTab> {
                 onChanged: (v) {
                   setState(() => _chunkOverlap = v.round());
                   cache.chunkOverlap = v.round();
+                },
+              ),
+            ),
+            const SizedBox(height: 4),
+            _buildSettingTile(
+              icon: Icons.vertical_split,
+              title: 'Split Separator',
+              subtitle: _chunkSeparator.isEmpty
+                  ? 'Auto (word boundary)'
+                  : _chunkSeparator == '\n'
+                      ? 'New line'
+                      : '"${_chunkSeparator.replaceAll('\n', '\\n')}"',
+              child: DropdownButton<String>(
+                value: _chunkSeparator == '__custom__' ? '__custom__' : _chunkSeparator,
+                isExpanded: true,
+                dropdownColor: AppColors.surface,
+                style: AppColors.font(color: AppColors.textPrimary, size: 13),
+                items: _separatorPresets.map((p) {
+                  return DropdownMenuItem(
+                    value: p['value'],
+                    child: Text(p['label']!, style: AppColors.font(size: 12)),
+                  );
+                }).toList(),
+                onChanged: (v) {
+                  if (v == null) return;
+                  if (v == '__custom__') {
+                    _showCustomSeparatorDialog(cache);
+                  } else {
+                    setState(() => _chunkSeparator = v);
+                    cache.chunkSeparator = v;
+                  }
                 },
               ),
             ),
@@ -1338,17 +1457,73 @@ class _RagSettingsTabState extends State<_RagSettingsTab> {
                 ),
               ),
               const Spacer(),
-              Text(
-                subtitle,
-                style: AppColors.font(
-                  color: AppColors.textHint,
-                  size: 12,
+              Flexible(
+                child: Text(
+                  subtitle,
+                  style: AppColors.font(
+                    color: AppColors.textHint,
+                    size: 12,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
           child,
+        ],
+      ),
+    );
+  }
+
+  void _showCustomSeparatorDialog(CacheService cache) {
+    final controller = TextEditingController(text: _chunkSeparator);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text('Custom Separator'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Enter a custom text separator. Use \\n for newlines.',
+              style: AppColors.font(size: 12, color: AppColors.textHint),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              style: AppColors.font(color: AppColors.textPrimary),
+              decoration: const InputDecoration(
+                hintText: 'e.g. \\n--- , | , ===',
+                filled: true,
+                fillColor: AppColors.surfaceLight,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              // Reset dropdown to current value
+              setState(() {});
+            },
+            child: Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final raw = controller.text;
+              final value = raw.replaceAll('\\n', '\n');
+              setState(() {
+                _chunkSeparator = value;
+                cache.chunkSeparator = value;
+              });
+              Navigator.pop(ctx);
+            },
+            child: Text('Save'),
+          ),
         ],
       ),
     );

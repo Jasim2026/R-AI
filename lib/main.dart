@@ -63,6 +63,7 @@ void main() async {
 
   final ragProvider = RagProvider(
     embeddingProvider: embeddingModelProvider,
+    ramMonitor: ramMonitorService,
     logService: logService,
   );
 

@@ -324,8 +324,11 @@ class _VectorDbDetailScreenState extends State<VectorDbDetailScreen> {
               await provider.processText(
                 dbPath: widget.db.filePath,
                 text: text,
-                chunkSize: cacheService.chunkSize,
+                chunkSize: cacheService.chunkAutoSize
+                    ? (text.length < 500 ? 200 : text.length < 2000 ? 300 : text.length < 10000 ? 500 : text.length < 50000 ? 700 : 1000)
+                    : cacheService.chunkSize,
                 chunkOverlap: cacheService.chunkOverlap,
+                separator: cacheService.chunkSeparator.isEmpty ? null : cacheService.chunkSeparator,
               );
 
               // Reload chunks
