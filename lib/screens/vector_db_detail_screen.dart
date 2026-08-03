@@ -329,6 +329,7 @@ class _VectorDbDetailScreenState extends State<VectorDbDetailScreen> {
                     : cacheService.chunkSize,
                 chunkOverlap: cacheService.chunkOverlap,
                 separator: cacheService.chunkSeparator.isEmpty ? null : cacheService.chunkSeparator,
+                searchMode: cacheService.searchMode,
               );
 
               // Reload chunks

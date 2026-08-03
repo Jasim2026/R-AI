@@ -94,6 +94,13 @@ class CacheService {
   String get chunkSeparator => _prefs.getString('chunk_separator') ?? '';
   set chunkSeparator(String value) => _prefs.setString('chunk_separator', value);
 
+  // Search mode: 'keyword' (default, no model needed) or 'vector' (requires embedding model)
+  String get searchMode => _prefs.getString('search_mode') ?? 'keyword';
+  set searchMode(String value) => _prefs.setString('search_mode', value);
+
+  bool get isKeywordSearch => searchMode == 'keyword';
+  bool get isVectorSearch => searchMode == 'vector';
+
   String get ragMode => _prefs.getString('rag_mode') ?? 'pre_generation';
   set ragMode(String value) => _prefs.setString('rag_mode', value);
 

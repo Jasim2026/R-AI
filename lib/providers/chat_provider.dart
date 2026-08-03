@@ -11,6 +11,7 @@ import '../services/log_service.dart';
 import '../providers/rag_provider.dart';
 import '../models/vector_db.dart';
 import '../services/vector_db_service.dart';
+import '../services/keyword_search_engine.dart';
 import '../providers/tool_provider.dart';
 
 enum InferenceBlockReason {
@@ -120,19 +121,35 @@ class ChatProvider extends ChangeNotifier {
     _logService.log('ChatProvider', 'LLM model: ${_litertService.currentModel!.name} (${_litertService.currentModel!.id})');
 
     if (ragEnabled) {
-      final ragLoaded = _ragProvider != null && _ragProvider!.isLoaded;
-      final hasDbs = _ragProvider != null && _ragProvider!.hasDbs;
-      _logService.log('ChatProvider', 'RAG checks: provider exists=${_ragProvider != null}, loaded=$ragLoaded, hasDBs=$hasDbs');
+      final isKwMode = _cacheService.isKeywordSearch;
+      _logService.log('ChatProvider', 'RAG mode: ${isKwMode ? "keyword" : "vector"}');
 
-      if (!ragLoaded) {
-        _logService.log('ChatProvider', 'BLOCKED: RAG enabled but embedding model not loaded');
-        return InferenceBlockReason.ragEnabledButNoEmbeddingModel;
+      if (isKwMode) {
+        // Keyword mode: only need DBs with chunks, no embedding model needed
+        final hasKeywordDbs = _ragProvider != null && _ragProvider!.dbs
+            .any((d) => d.embeddingDimension == 0 && d.chunkCount > 0);
+        _logService.log('ChatProvider', 'Keyword DBs with chunks: $hasKeywordDbs');
+        if (!hasKeywordDbs) {
+          _logService.log('ChatProvider', 'BLOCKED: RAG enabled but no keyword databases');
+          return InferenceBlockReason.ragEnabledButNoDatabases;
+        }
+      } else {
+        // Vector mode: need embedding model loaded + vector DBs
+        final ragLoaded = _ragProvider != null && _ragProvider!.isLoaded;
+        final hasVecDbs = _ragProvider != null && _ragProvider!.hasDbs &&
+            _ragProvider!.dbs.any((d) => d.embeddingDimension > 0);
+        _logService.log('ChatProvider', 'Vector checks: loaded=$ragLoaded, hasDBs=$hasVecDbs');
+
+        if (!ragLoaded) {
+          _logService.log('ChatProvider', 'BLOCKED: RAG enabled but embedding model not loaded');
+          return InferenceBlockReason.ragEnabledButNoEmbeddingModel;
+        }
+        if (!hasVecDbs) {
+          _logService.log('ChatProvider', 'BLOCKED: RAG enabled but no vector databases');
+          return InferenceBlockReason.ragEnabledButNoDatabases;
+        }
+        _logService.log('ChatProvider', 'RAG ready: ${_ragProvider!.dbs.length} databases, dim=${_ragProvider!.embeddingDimension}');
       }
-      if (!hasDbs) {
-        _logService.log('ChatProvider', 'BLOCKED: RAG enabled but no databases');
-        return InferenceBlockReason.ragEnabledButNoDatabases;
-      }
-      _logService.log('ChatProvider', 'RAG ready: ${_ragProvider!.dbs.length} databases, dim=${_ragProvider!.embeddingDimension}');
     }
 
     _logService.log('ChatProvider', 'All prerequisites met');
@@ -400,7 +417,22 @@ class ChatProvider extends ChangeNotifier {
       // Pre-generation RAG
       if (ragMode == 'pre_generation' && ragEnabled) {
         _logService.log('ChatProvider', 'Pre-generation RAG: checking prerequisites...');
-        if (_ragProvider != null && _ragProvider!.isLoaded && _ragProvider!.hasDbs) {
+        final isKeywordMode = _cacheService.isKeywordSearch;
+
+        // Keyword mode: only needs DBs with chunks (no embedding model required)
+        // Vector mode: needs embedding model loaded + DBs
+        final hasKeywordDbs = _ragProvider != null && _ragProvider!.dbs
+            .any((d) => d.embeddingDimension == 0 && d.chunkCount > 0);
+        final hasVectorDbs = _ragProvider != null && _ragProvider!.hasDbs &&
+            _ragProvider!.dbs.any((d) => d.embeddingDimension > 0);
+
+        final canSearch = isKeywordMode
+            ? (hasKeywordDbs)
+            : (_ragProvider != null && _ragProvider!.isLoaded && hasVectorDbs);
+
+        _logService.log('ChatProvider', 'RAG search mode: ${isKeywordMode ? "keyword" : "vector"}, canSearch=$canSearch');
+
+        if (canSearch) {
           final topK = _cacheService.ragTopK;
           _logService.log('ChatProvider', 'RAG search: topK=$topK');
 
@@ -408,50 +440,74 @@ class ChatProvider extends ChangeNotifier {
           _isRagSearching = true;
           _generationStatus = GenerationStatus.searchingDocuments;
           _ragProgress = 0.1;
-          _ragStatus = 'Searching documents...';
+          _ragStatus = isKeywordMode ? 'Searching by keywords...' : 'Searching documents...';
           notifyListeners();
 
-          // Small delay to show the progress bar
           await Future.delayed(const Duration(milliseconds: 100));
 
-          _generationStatus = GenerationStatus.embeddingQuery;
-          _ragProgress = 0.3;
-          _ragStatus = 'Embedding query...';
-          notifyListeners();
+          if (!isKeywordMode) {
+            _generationStatus = GenerationStatus.embeddingQuery;
+            _ragProgress = 0.3;
+            _ragStatus = 'Embedding query...';
+            notifyListeners();
+          }
 
-          final results = await _ragProvider!.search(
-            query: userContent,
-            topK: topK,
-            dbPaths: _selectedRagDbNames.isEmpty
-                ? null
-                : _ragProvider!.dbs
-                    .where((d) => _selectedRagDbNames.contains(d.name))
-                    .map((d) => d.filePath)
-                    .toList(),
-          );
+          List<dynamic> searchResults;
+          if (isKeywordMode) {
+            // Keyword search — no embedding model needed
+            searchResults = await _ragProvider!.searchKeyword(
+              query: userContent,
+              topK: topK,
+              dbNames: _selectedRagDbNames.isEmpty ? null : _selectedRagDbNames,
+            );
+          } else {
+            // Vector search — requires embedding model
+            searchResults = await _ragProvider!.search(
+              query: userContent,
+              topK: topK,
+              dbPaths: _selectedRagDbNames.isEmpty
+                  ? null
+                  : _ragProvider!.dbs
+                      .where((d) => _selectedRagDbNames.contains(d.name))
+                      .map((d) => d.filePath)
+                      .toList(),
+            );
+          }
 
-          _logService.log('ChatProvider', 'RAG search returned ${results.length} results');
+          _logService.log('ChatProvider', 'RAG search returned ${searchResults.length} results');
 
           _generationStatus = GenerationStatus.foundContext;
           _ragProgress = 0.7;
-          _ragStatus = 'Found ${results.length} relevant chunks';
+          _ragStatus = 'Found ${searchResults.length} relevant chunks';
           notifyListeners();
 
           await Future.delayed(const Duration(milliseconds: 200));
 
-          if (results.isNotEmpty) {
-            // Build RAG contexts for storage
-            ragContextsUsed = results.map((r) => RagContext(
-              text: r.text,
-              score: r.score,
-              dbName: r.dbPath.split('/').last.replaceAll('.db', ''),
-              chunkId: r.chunkId,
-            )).toList();
+          if (searchResults.isNotEmpty) {
+            if (isKeywordMode) {
+              // KeywordSearchResult → RagContext
+              final kwResults = searchResults.cast<KeywordSearchResult>();
+              ragContextsUsed = kwResults.map((r) => RagContext(
+                text: r.text,
+                score: r.score,
+                dbName: r.dbName,
+                chunkId: r.chunkId,
+              )).toList();
+            } else {
+              // VectorSearchResult → RagContext
+              final vecResults = searchResults.cast<VectorSearchResult>();
+              ragContextsUsed = vecResults.map((r) => RagContext(
+                text: r.text,
+                score: r.score,
+                dbName: r.dbPath.split('/').last.replaceAll('.db', ''),
+                chunkId: r.chunkId,
+              )).toList();
+            }
 
             // Show context preview
-            final firstChunkPreview = results.first.text.length > 50
-                ? results.first.text.substring(0, 50) + '...'
-                : results.first.text;
+            final firstChunkPreview = ragContextsUsed!.first.text.length > 50
+                ? ragContextsUsed!.first.text.substring(0, 50) + '...'
+                : ragContextsUsed!.first.text;
             _ragStatus = 'Using: "$firstChunkPreview"';
             _ragProgress = 0.9;
             notifyListeners();
@@ -462,9 +518,9 @@ class ChatProvider extends ChangeNotifier {
             _ragStatus = 'Building prompt...';
             notifyListeners();
 
-            promptToSend = _ragProvider!.buildRagPrompt(
+            promptToSend = _ragProvider!.buildRagPromptFromContexts(
               userContent,
-              results,
+              ragContextsUsed!,
               _cacheService.ragOnSystemPrompt,
             );
             systemInstruction = '';
@@ -500,37 +556,60 @@ class ChatProvider extends ChangeNotifier {
         // Post-generation RAG
         if (ragMode == 'post_generation' && ragEnabled && !_usedRag) {
           _logService.log('ChatProvider', 'Post-generation RAG: checking for uncertainty...');
-          if (_isUncertainResponse(finalResponse) &&
-              _ragProvider != null &&
-              _ragProvider!.isLoaded &&
-              _ragProvider!.hasDbs) {
+          final isKwMode = _cacheService.isKeywordSearch;
+          final hasKwDbs = _ragProvider != null && _ragProvider!.dbs
+              .any((d) => d.embeddingDimension == 0 && d.chunkCount > 0);
+          final hasVecDbs = _ragProvider != null && _ragProvider!.hasDbs &&
+              _ragProvider!.dbs.any((d) => d.embeddingDimension > 0);
+          final canSearch = isKwMode
+              ? hasKwDbs
+              : (_ragProvider != null && _ragProvider!.isLoaded && hasVecDbs);
+
+          if (_isUncertainResponse(finalResponse) && canSearch) {
             _logService.log('ChatProvider', 'Response is uncertain, re-generating with RAG...');
             _usedRag = true;
             final topK = _cacheService.ragTopK;
-            final results = await _ragProvider!.search(
-              query: userContent,
-              topK: topK,
-              dbPaths: _selectedRagDbNames.isEmpty
-                  ? null
-                  : _ragProvider!.dbs
-                      .where((d) => _selectedRagDbNames.contains(d.name))
-                      .map((d) => d.filePath)
-                      .toList(),
-            );
 
-            _logService.log('ChatProvider', 'RAG search returned ${results.length} results for re-generation');
+            List<dynamic> postResults;
+            if (isKwMode) {
+              postResults = await _ragProvider!.searchKeyword(
+                query: userContent,
+                topK: topK,
+                dbNames: _selectedRagDbNames.isEmpty ? null : _selectedRagDbNames,
+              );
+            } else {
+              postResults = await _ragProvider!.search(
+                query: userContent,
+                topK: topK,
+                dbPaths: _selectedRagDbNames.isEmpty
+                    ? null
+                    : _ragProvider!.dbs
+                        .where((d) => _selectedRagDbNames.contains(d.name))
+                        .map((d) => d.filePath)
+                        .toList(),
+              );
+            }
 
-            if (results.isNotEmpty) {
-              ragContextsUsed = results.map((r) => RagContext(
-                text: r.text,
-                score: r.score,
-                dbName: r.dbPath.split('/').last.replaceAll('.db', ''),
-                chunkId: r.chunkId,
-              )).toList();
+            _logService.log('ChatProvider', 'RAG search returned ${postResults.length} results for re-generation');
 
-              final ragPrompt = _ragProvider!.buildRagPrompt(
+            if (postResults.isNotEmpty) {
+              if (isKwMode) {
+                final kwR = postResults.cast<KeywordSearchResult>();
+                ragContextsUsed = kwR.map((r) => RagContext(
+                  text: r.text, score: r.score, dbName: r.dbName, chunkId: r.chunkId,
+                )).toList();
+              } else {
+                final vecR = postResults.cast<VectorSearchResult>();
+                ragContextsUsed = vecR.map((r) => RagContext(
+                  text: r.text, score: r.score,
+                  dbName: r.dbPath.split('/').last.replaceAll('.db', ''),
+                  chunkId: r.chunkId,
+                )).toList();
+              }
+
+              final ragPrompt = _ragProvider!.buildRagPromptFromContexts(
                 userContent,
-                results,
+                ragContextsUsed!,
                 _cacheService.ragOnSystemPrompt,
               );
 

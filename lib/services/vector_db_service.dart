@@ -518,30 +518,40 @@ class VectorDbService {
   }
 
   // Import a .db file from user selection
-  static Future<VectorDb?> importDb(String srcPath, {String? name}) async {
-    _logService.log('VectorDbService', 'Importing DB from: $srcPath');
+  // Accepts either a file path or raw bytes (for content URIs on Android)
+  static Future<VectorDb?> importDb(String? srcPath, {String? name, Uint8List? bytes}) async {
+    _logService.log('VectorDbService', 'Importing DB from: ${srcPath ?? "(bytes)"}');
     try {
-      final srcFile = File(srcPath);
-      if (!await srcFile.exists()) {
-        _logService.log('VectorDbService', 'ERROR: Source file not found: $srcPath');
+      Uint8List fileBytes;
+      if (bytes != null) {
+        fileBytes = bytes;
+      } else if (srcPath != null) {
+        final srcFile = File(srcPath);
+        if (!await srcFile.exists()) {
+          _logService.log('VectorDbService', 'ERROR: Source file not found: $srcPath');
+          return null;
+        }
+        fileBytes = await srcFile.readAsBytes();
+      } else {
+        _logService.log('VectorDbService', 'ERROR: No path or bytes provided');
         return null;
       }
 
       // Validate magic number
-      final bytes = await srcFile.readAsBytes();
-      if (bytes.length < _headerSize) {
-        _logService.log('VectorDbService', 'ERROR: File too small: ${bytes.length} bytes');
+      if (fileBytes.length < _headerSize) {
+        _logService.log('VectorDbService', 'ERROR: File too small: ${fileBytes.length} bytes');
         return null;
       }
-      final magic = ByteData.sublistView(bytes).getUint32(0, Endian.little);
+      final magic = ByteData.sublistView(fileBytes).getUint32(0, Endian.little);
       if (magic != _magic) {
         _logService.log('VectorDbService', 'ERROR: Invalid DB file (bad magic)');
         return null;
       }
 
-      final dbName = name ?? srcPath.split('/').last.replaceAll('.db', '');
+      final dbName = name ?? (srcPath?.split('/').last.replaceAll('.db', '') ?? 'imported_${DateTime.now().millisecondsSinceEpoch}');
       final destPath = await _dbPath(dbName);
-      await srcFile.copy(destPath);
+      final destFile = File(destPath);
+      await destFile.writeAsBytes(fileBytes);
 
       final db = await openDb(dbName);
       _logService.log('VectorDbService', 'Imported DB: $dbName (${db?.chunkCount ?? 0} chunks)');

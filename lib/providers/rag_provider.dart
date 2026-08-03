@@ -3,9 +3,12 @@ import 'package:flutter/foundation.dart';
 import '../models/vector_db.dart';
 import '../models/vector_chunk.dart';
 import '../services/vector_db_service.dart';
+import '../services/keyword_db_service.dart';
+import '../services/keyword_search_engine.dart';
 import '../services/text_chunker.dart';
 import '../services/log_service.dart';
 import '../services/ram_monitor_service.dart';
+import '../services/cache_service.dart';
 import '../providers/embedding_model_provider.dart';
 
 class RagProvider extends ChangeNotifier {
@@ -68,10 +71,26 @@ class RagProvider extends ChangeNotifier {
     _logService.log('RagProvider', 'Loading databases...');
     try {
       _dbs = await VectorDbService.listDbs();
+
+      // Also load keyword DB names for display
+      final keywordDbs = await KeywordDbService.listDbs();
+      for (final name in keywordDbs) {
+        // Add keyword DBs that aren't already in the vector list
+        if (!_dbs.any((d) => d.name == name)) {
+          final count = await KeywordDbService.countChunks(name);
+          _dbs.add(VectorDb(
+            name: name,
+            filePath: 'keyword://$name',
+            chunkCount: count,
+            embeddingDimension: 0, // 0 = keyword mode
+          ));
+        }
+      }
+
       _isInitialized = true;
-      _logService.log('RagProvider', 'Loaded ${_dbs.length} databases');
+      _logService.log('RagProvider', 'Loaded ${_dbs.length} databases (${_dbs.where((d) => d.embeddingDimension > 0).length} vector, ${keywordDbs.length} keyword)');
       for (final db in _dbs) {
-        _logService.log('RagProvider', '  DB: ${db.name} | chunks: ${db.chunkCount} | dim: ${db.embeddingDimension} | path: ${db.filePath}');
+        _logService.log('RagProvider', '  DB: ${db.name} | chunks: ${db.chunkCount} | mode: ${db.embeddingDimension > 0 ? "vector" : "keyword"}');
       }
       notifyListeners();
     } catch (e, stackTrace) {
@@ -104,8 +123,31 @@ class RagProvider extends ChangeNotifier {
   Future<void> deleteDatabase(String name) async {
     _logService.log('RagProvider', 'Deleting database: $name');
     try {
-      await VectorDbService.deleteDb(name);
+      // Delete from both stores
+      final vectorDb = await VectorDbService.listDbs();
+      if (vectorDb.any((d) => d.name == name)) {
+        await VectorDbService.deleteDb(name);
+      }
+      final keywordDbs = await KeywordDbService.listDbs();
+      if (keywordDbs.contains(name)) {
+        await KeywordDbService.deleteDb(name);
+      }
       _dbs = await VectorDbService.listDbs();
+
+      // Re-add keyword DBs to list
+      final kDbs = await KeywordDbService.listDbs();
+      for (final kName in kDbs) {
+        if (!_dbs.any((d) => d.name == kName)) {
+          final count = await KeywordDbService.countChunks(kName);
+          _dbs.add(VectorDb(
+            name: kName,
+            filePath: 'keyword://$kName',
+            chunkCount: count,
+            embeddingDimension: 0,
+          ));
+        }
+      }
+
       _logService.log('RagProvider', 'Database deleted. Total databases now: ${_dbs.length}');
       notifyListeners();
     } catch (e, stackTrace) {
@@ -117,23 +159,20 @@ class RagProvider extends ChangeNotifier {
   Future<void> processText({
     required String dbPath,
     required String text,
+    String? dbName,
     String source = '',
     int chunkSize = 500,
     int chunkOverlap = 50,
     String? separator,
+    String? searchMode,
     void Function(int current, int total, String chunkPreview)? onProgress,
   }) async {
-    _logService.log('RagProvider', 'Processing text for DB: $dbPath');
+    final mode = searchMode ?? 'vector';
+    _logService.log('RagProvider', 'Processing text for DB: ${dbName ?? dbPath} (mode=$mode)');
     _logService.log('RagProvider', 'Text length: ${text.length} chars | source: ${source.isEmpty ? "(none)" : source}');
     _logService.log('RagProvider', 'Chunk size: $chunkSize | overlap: $chunkOverlap | separator: ${separator ?? "(none)"}');
 
-    if (!_embeddingProvider.isLoaded) {
-      _logService.log('RagProvider', 'ERROR: Embedding model not loaded');
-      throw Exception('Embedding model not loaded');
-    }
-
-    // Chunk synchronously on main thread — compute() COPIES the entire string
-    // to the isolate which doubles memory usage and causes OOM on large texts.
+    // Chunk synchronously on main thread
     _logService.log('RagProvider', 'Chunking text synchronously...');
     final chunker = TextChunker(
       chunkSize: chunkSize,
@@ -148,16 +187,44 @@ class RagProvider extends ChangeNotifier {
       return;
     }
 
+    // Keyword mode: store in SQLite, no embedding model needed
+    if (mode == 'keyword') {
+      final kwName = dbName ?? dbPath.split('/').last.replaceAll('.db', '');
+      _logService.log('RagProvider', 'Storing ${chunks.length} chunks in keyword DB: $kwName');
+      await KeywordDbService.addChunks(kwName, chunks, source: source);
+      onProgress?.call(chunks.length, chunks.length, 'Done');
+      _dbs = await VectorDbService.listDbs();
+      // Re-add keyword DBs
+      final kwDbs = await KeywordDbService.listDbs();
+      for (final kName in kwDbs) {
+        if (!_dbs.any((d) => d.name == kName)) {
+          final count = await KeywordDbService.countChunks(kName);
+          _dbs.add(VectorDb(
+            name: kName,
+            filePath: 'keyword://$kName',
+            chunkCount: count,
+            embeddingDimension: 0,
+          ));
+        }
+      }
+      notifyListeners();
+      return;
+    }
+
+    // Vector mode: requires embedding model
+    if (!_embeddingProvider.isLoaded) {
+      _logService.log('RagProvider', 'ERROR: Embedding model not loaded');
+      throw Exception('Embedding model not loaded');
+    }
+
     var totalEmbedded = 0;
     var abortedDueToRam = false;
 
-    // Process ONE chunk at a time with aggressive memory management
     for (var i = 0; i < chunks.length; i++) {
       final chunk = chunks[i];
       final preview = chunk.length > 60 ? '${chunk.substring(0, 60)}...' : chunk;
       _logService.log('RagProvider', 'Processing chunk [$i/${chunks.length}]: $preview');
 
-      // RAM guard before every embed call
       final ramOk = await _checkRamBeforeEmbed(i, chunks.length);
       if (!ramOk) {
         _logService.log('RagProvider', 'Aborting due to low RAM at chunk $i');
@@ -166,31 +233,25 @@ class RagProvider extends ChangeNotifier {
       }
 
       try {
-        // 1. Embed single chunk
         final vector = await _embeddingProvider.embed(chunk);
         _logService.log('RagProvider', '  Embedded: dim=${vector.length}');
 
-        // 2. Store immediately to DB
         await VectorDbService.addChunks(dbPath, [chunk], [vector]);
         totalEmbedded++;
         _logService.log('RagProvider', '  Stored in DB. Total: $totalEmbedded/${chunks.length}');
 
-        // 3. Yield to UI every chunk (not just every 5)
         await Future.delayed(const Duration(milliseconds: 20));
 
-        // 4. Refresh DB list so UI shows updated chunk count
         if (i % 3 == 0 || i == chunks.length - 1) {
           _dbs = await VectorDbService.listDbs();
           notifyListeners();
         }
 
-        // 5. Progress callback with chunk preview
         onProgress?.call(totalEmbedded, chunks.length, preview);
       } catch (e, stackTrace) {
         _logService.logError('RagProvider', 'Failed to process chunk $i', e, stackTrace);
         _logService.log('RagProvider', 'Skipping chunk $i, continuing...');
 
-        // If error is OOM-related, abort entirely
         final errStr = e.toString().toLowerCase();
         if (errStr.contains('out of memory') || errStr.contains('oom') || errStr.contains('alloc')) {
           _logService.log('RagProvider', 'OOM detected in embed — aborting remaining chunks');
@@ -208,6 +269,36 @@ class RagProvider extends ChangeNotifier {
 
     _dbs = await VectorDbService.listDbs();
     notifyListeners();
+  }
+
+  /// Keyword search — uses BM25 scoring, no embedding model needed.
+  Future<List<KeywordSearchResult>> searchKeyword({
+    required String query,
+    List<String>? dbNames,
+    int topK = 5,
+  }) async {
+    _logService.log('RagProvider', 'Keyword search: "${query.length > 80 ? query.substring(0, 80) + "..." : query}"');
+
+    try {
+      final results = await KeywordDbService.search(
+        query: query,
+        dbNames: dbNames,
+        topK: topK,
+      );
+
+      _logService.log('RagProvider', 'Keyword search returned ${results.length} results');
+      for (var i = 0; i < results.length && i < 5; i++) {
+        final r = results[i];
+        _logService.log('RagProvider', '  Result[$i]: score=${r.score.toStringAsFixed(4)} db=${r.dbName} chunkId=${r.chunkId}');
+      }
+
+      return results;
+    } catch (e, stackTrace) {
+      _logService.logError('RagProvider', 'Keyword search failed', e, stackTrace);
+      _error = 'Keyword search failed: $e';
+      notifyListeners();
+      return [];
+    }
   }
 
   Future<List<VectorSearchResult>> search({
@@ -371,6 +462,38 @@ class RagProvider extends ChangeNotifier {
 
     final prompt = buffer.toString();
     _logService.log('RagProvider', 'RAG prompt built: ${prompt.length} chars (query: ${userQuery.length} chars, context: ${results.length} blocks)');
+    return prompt;
+  }
+
+  String buildRagPromptFromContexts(String userQuery, List<RagContext> contexts, String systemPrompt) {
+    _logService.log('RagProvider', 'Building RAG prompt from ${contexts.length} contexts');
+
+    if (contexts.isEmpty) {
+      return userQuery;
+    }
+
+    final buffer = StringBuffer();
+    buffer.writeln(systemPrompt);
+    buffer.writeln();
+    buffer.writeln('Use the following context to answer the question. '
+        'If the context does not contain relevant information, '
+        'answer based on your general knowledge.');
+    buffer.writeln();
+    buffer.writeln('--- Context ---');
+
+    for (var i = 0; i < contexts.length; i++) {
+      buffer.writeln('[Context ${i + 1}] (score: ${contexts[i].score.toStringAsFixed(3)})');
+      buffer.writeln(contexts[i].text);
+      buffer.writeln();
+    }
+
+    buffer.writeln('--- End Context ---');
+    buffer.writeln();
+    buffer.writeln('Question: $userQuery');
+    buffer.write('Answer: ');
+
+    final prompt = buffer.toString();
+    _logService.log('RagProvider', 'RAG prompt built: ${prompt.length} chars (query: ${userQuery.length} chars, context: ${contexts.length} blocks)');
     return prompt;
   }
 

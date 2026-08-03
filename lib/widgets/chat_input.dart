@@ -200,42 +200,44 @@ class _ChatInputState extends State<ChatInput> {
                   ),
                 ),
               ),
-            // RAG chunk toolbar (shows last used chunks, persistent until next inference)
-            if (!isBusy && chatProvider.lastRagChunkIds != null && chatProvider.lastRagChunkIds!.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppColors.accent.withOpacity(0.06),
-                  border: Border(
-                    top: BorderSide(
-                      color: AppColors.accent.withOpacity(0.15),
-                      width: 0.5,
-                    ),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.bookmark_outline,
-                      size: 12,
-                      color: AppColors.accent.withOpacity(0.7),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'Last context: ${chatProvider.lastRagChunkIds}',
-                        style: AppColors.font(
-                          size: 10,
-                          color: AppColors.accent.withOpacity(0.7),
-                          weight: FontWeight.w500,
+            // RAG chunk toolbar — shows last used context DBs and chunk IDs
+            if (!isBusy)
+              chatProvider.lastRagChunkIds != null && chatProvider.lastRagChunkIds!.isNotEmpty
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.accent.withOpacity(0.06),
+                        border: Border(
+                          top: BorderSide(
+                            color: AppColors.accent.withOpacity(0.15),
+                            width: 0.5,
+                          ),
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                  ],
-                ),
-              ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.bookmark_outline,
+                            size: 12,
+                            color: AppColors.accent.withOpacity(0.7),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '${chatProvider.lastRagDbNames ?? ""}  •  ${chatProvider.lastRagChunkIds}',
+                              style: AppColors.font(
+                                size: 10,
+                                color: AppColors.accent.withOpacity(0.7),
+                                weight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(),
             // Input area
             Container(
               padding: EdgeInsets.only(

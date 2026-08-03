@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
@@ -766,12 +767,21 @@ class _DocumentsTab extends StatelessWidget {
             final result = await FilePicker.platform.pickFiles(
               type: FileType.custom,
               allowedExtensions: ['db'],
+              withData: true, // get bytes as fallback for content URIs
             );
             if (result == null || result.files.isEmpty) return;
             final file = result.files.first;
-            if (file.path == null) return;
 
-            final db = await VectorDbService.importDb(file.path!);
+            VectorDb? db;
+            if (file.bytes != null) {
+              db = await VectorDbService.importDb(
+                file.path,
+                bytes: file.bytes,
+                name: file.name.replaceAll(RegExp(r'\.db$'), ''),
+              );
+            } else if (file.path != null) {
+              db = await VectorDbService.importDb(file.path!);
+            }
             if (context.mounted && db != null) {
               provider.loadDatabases();
               ScaffoldMessenger.of(context).showSnackBar(
@@ -851,22 +861,36 @@ class _DocumentsTab extends StatelessWidget {
             );
             if (db == null || !context.mounted) return;
 
-            final dest = await FilePicker.platform.saveFile(
+            // Pass bytes directly — required on mobile per file_picker docs
+            final srcPath = db.filePath;
+            final srcFile = File(srcPath);
+            if (!await srcFile.exists()) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Source DB file not found', style: AppColors.font(size: 12)),
+                    backgroundColor: AppColors.error,
+                  ),
+                );
+              }
+              return;
+            }
+            final fileBytes = await srcFile.readAsBytes();
+
+            final result = await FilePicker.platform.saveFile(
+              dialogTitle: 'Export Database',
               fileName: '${db.name}.db',
+              bytes: Uint8List.fromList(fileBytes),
               type: FileType.custom,
               allowedExtensions: ['db'],
             );
-            if (dest == null) return;
+            if (!context.mounted) return;
 
-            final result = await VectorDbService.exportDb(db.name, dest);
-            if (context.mounted) {
+            if (result != null) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text(
-                    result != null ? 'Exported to: $dest' : 'Export failed',
-                    style: AppColors.font(size: 12),
-                  ),
-                  backgroundColor: result != null ? AppColors.success : AppColors.error,
+                  content: Text('Exported: ${db.name}.db', style: AppColors.font(size: 12)),
+                  backgroundColor: AppColors.success,
                 ),
               );
             }
@@ -1043,24 +1067,31 @@ class _DocumentsTab extends StatelessWidget {
 
               Navigator.pop(context);
 
-              String dbPath;
-              final existing = provider.dbs.where(
-                (d) => d.displayName == name,
-              );
+              final isKwMode = cache.searchMode == 'keyword';
+              String dbPath = '';
 
-              if (existing.isNotEmpty) {
-                dbPath = existing.first.filePath;
-              } else {
-                final db = await provider.createDatabase(name);
-                dbPath = db.filePath;
+              if (!isKwMode) {
+                // Vector mode: need a vector DB
+                final existing = provider.dbs.where(
+                  (d) => d.displayName == name && d.embeddingDimension > 0,
+                );
+
+                if (existing.isNotEmpty) {
+                  dbPath = existing.first.filePath;
+                } else {
+                  final db = await provider.createDatabase(name);
+                  dbPath = db.filePath;
+                }
               }
 
               await provider.processText(
                 dbPath: dbPath,
                 text: text,
+                dbName: name,
                 chunkSize: chunkSize,
                 chunkOverlap: cache.chunkOverlap,
                 separator: separator.isEmpty ? null : separator,
+                searchMode: cache.searchMode,
               );
             },
             child: Text('Process'),
@@ -1109,27 +1140,33 @@ class _ProcessingDialogState extends State<_ProcessingDialog> {
     try {
       final file = File(widget.filePath);
       final text = await file.readAsString();
+      final searchMode = context.read<CacheService>().searchMode;
+      final isKwMode = searchMode == 'keyword';
 
-      // Create db
-      String dbPath;
-      final existing = widget.provider.dbs.where(
-        (d) => d.displayName == widget.dbName,
-      );
+      // Create db — skip in keyword mode (no vector DB needed)
+      String dbPath = '';
+      if (!isKwMode) {
+        final existing = widget.provider.dbs.where(
+          (d) => d.displayName == widget.dbName && d.embeddingDimension > 0,
+        );
 
-      if (existing.isNotEmpty) {
-        dbPath = existing.first.filePath;
-      } else {
-        final db = await widget.provider.createDatabase(widget.dbName);
-        dbPath = db.filePath;
+        if (existing.isNotEmpty) {
+          dbPath = existing.first.filePath;
+        } else {
+          final db = await widget.provider.createDatabase(widget.dbName);
+          dbPath = db.filePath;
+        }
       }
 
       // Process with progress — one chunk at a time
       await widget.provider.processText(
         dbPath: dbPath,
         text: text,
+        dbName: widget.dbName,
         chunkSize: widget.chunkSize,
         chunkOverlap: widget.chunkOverlap,
         separator: widget.separator.isEmpty ? null : widget.separator,
+        searchMode: searchMode,
         onProgress: (current, total, chunkPreview) {
           if (mounted) {
             setState(() {
@@ -1244,6 +1281,7 @@ class _RagSettingsTabState extends State<_RagSettingsTab> {
   int _ragTopK = 5;
   bool _chunkAutoSize = true;
   String _chunkSeparator = '';
+  String _searchMode = 'keyword';
   bool _loaded = false;
 
   void _loadSettings(CacheService cache) {
@@ -1254,6 +1292,7 @@ class _RagSettingsTabState extends State<_RagSettingsTab> {
       _ragTopK = cache.ragTopK;
       _chunkAutoSize = cache.chunkAutoSize;
       _chunkSeparator = cache.chunkSeparator;
+      _searchMode = cache.searchMode;
       _loaded = true;
     }
   }
@@ -1279,6 +1318,56 @@ class _RagSettingsTabState extends State<_RagSettingsTab> {
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            _buildSectionHeader('SEARCH MODE'),
+            const SizedBox(height: 8),
+            _buildSettingTile(
+              icon: Icons.search,
+              title: 'RAG Search',
+              subtitle: _searchMode == 'keyword'
+                  ? 'Keyword (default, no model needed)'
+                  : 'Vector (requires embedding model)',
+              child: DropdownButton<String>(
+                value: _searchMode,
+                dropdownColor: AppColors.surface,
+                style: AppColors.font(color: AppColors.textPrimary, size: 13),
+                isExpanded: true,
+                items: const [
+                  DropdownMenuItem(
+                    value: 'keyword',
+                    child: Text('Keyword — BM25 scoring, no model required'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'vector',
+                    child: Text('Vector — semantic search, requires model'),
+                  ),
+                ],
+                onChanged: (v) {
+                  if (v != null) {
+                    setState(() => _searchMode = v);
+                    cache.searchMode = v;
+                  }
+                },
+              ),
+            ),
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceLight,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                _searchMode == 'keyword'
+                    ? 'Keyword mode uses BM25 text matching. No embedding model '
+                      'needed — process documents directly. Best for exact term '
+                      'retrieval. Stopwords (a, the, is...) are excluded from scoring.'
+                    : 'Vector mode embeds documents using a TFLite model (minilm). '
+                      'Semantic similarity search. Requires loading an embedding '
+                      'model first.',
+                style: AppColors.font(size: 11, color: AppColors.textHint, height: 1.4),
+              ),
+            ),
+            const SizedBox(height: 16),
             _buildSectionHeader('RAG MODE'),
             const SizedBox(height: 8),
             _buildSettingTile(
