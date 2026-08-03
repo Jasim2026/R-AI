@@ -99,12 +99,15 @@ class EmbeddingService {
 
     try {
       if (_isInitialized && _currentModelPath == modelPath) {
-        _logService.log('EmbeddingService', 'Already initialized with this model, skipping');
+        _logService.log('EmbeddingService', 'Already initialized with same model, skipping');
         return true;
       }
 
-      _logService.log('EmbeddingService', 'Disposing previous handler...');
-      await disposeAsync();
+      // Dispose previous handler if switching models
+      if (_isInitialized) {
+        _logService.log('EmbeddingService', 'Disposing previous handler...');
+        await disposeAsync();
+      }
 
       _logService.log('EmbeddingService', 'Initializing TFLite backend...');
       final success = await _tfliteHandler.initialize(modelPath, vocabPath: vocabPath);

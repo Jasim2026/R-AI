@@ -27,10 +27,44 @@ class TfliteEmbeddingHandler {
   bool get isInitialized => _isInitialized;
   int get embeddingDimension => _embeddingDimension;
 
+  int _getNativeMemoryKb() {
+    try {
+      final info = File('/proc/self/status').readAsLinesSync();
+      for (final line in info) {
+        if (line.startsWith('VmRSS:')) {
+          final kb = int.tryParse(
+            line.replaceAll(RegExp(r'[^0-9]'), ''),
+          );
+          if (kb != null) return kb;
+        }
+      }
+    } catch (_) {}
+    return 0;
+  }
+
   Future<bool> initialize(String modelPath, {String? vocabPath}) async {
     _logService.log('TfliteEmbeddingHandler', '=== Initializing TFLite embedding handler ===');
+    _logService.log('TfliteEmbeddingHandler', 'Process RSS before init: ${_getNativeMemoryKb()} KB');
+
     try {
-      await close();
+      // CRITICAL: If already loaded with same model, skip re-creation.
+      // Interpreter.close() does NOT free native memory (tflite_flutter bug #110),
+      // so creating multiple interpreters leaks native heap and causes OOM.
+      if (_isInitialized && _currentModelPath == modelPath && _interpreter != null) {
+        _logService.log('TfliteEmbeddingHandler', 'Already initialized with same model, skipping');
+        return true;
+      }
+
+      // Close any existing interpreter FIRST before creating a new one
+      if (_interpreter != null) {
+        _logService.log('TfliteEmbeddingHandler', 'Closing previous interpreter...');
+        _interpreter!.close();
+        _interpreter = null;
+        _isInitialized = false;
+        // Yield to let native memory be reclaimed
+        await Future.delayed(const Duration(milliseconds: 100));
+        _logService.log('TfliteEmbeddingHandler', 'RSS after close: ${_getNativeMemoryKb()} KB');
+      }
 
       _logService.log('TfliteEmbeddingHandler', 'Model path: $modelPath');
 
@@ -61,21 +95,32 @@ class TfliteEmbeddingHandler {
       }
       _logService.log('TfliteEmbeddingHandler', 'Loaded vocab: ${_vocab!.length} entries');
 
-      final options = InterpreterOptions()..threads = 4;
+      // Use threads=1 to minimize native memory footprint.
+      // threads=4 caused native OOM on low-RAM devices because each thread
+      // allocates its own stack and TFLite allocates per-thread workspaces.
+      final options = InterpreterOptions()..threads = 1;
+      _logService.log('TfliteEmbeddingHandler', 'Creating interpreter with threads=1...');
 
-      _logService.log('TfliteEmbeddingHandler', 'Creating interpreter...');
-      _interpreter = await Interpreter.fromFile(File(modelPath), options: options);
-      _logService.log('TfliteEmbeddingHandler', 'Interpreter created');
+      Interpreter interpreter;
+      try {
+        interpreter = await Interpreter.fromFile(File(modelPath), options: options);
+      } catch (e) {
+        _logService.log('TfliteEmbeddingHandler', 'Interpreter.fromFile failed: $e');
+        // Do NOT retry with different options — each retry leaks native memory.
+        // Just fail gracefully.
+        return false;
+      }
 
-      final inputTensors = _interpreter!.getInputTensors();
-      final outputTensors = _interpreter!.getOutputTensors();
+      _logService.log('TfliteEmbeddingHandler', 'Interpreter created. RSS: ${_getNativeMemoryKb()} KB');
+
+      final inputTensors = interpreter.getInputTensors();
+      final outputTensors = interpreter.getOutputTensors();
 
       _logService.log('TfliteEmbeddingHandler', 'Input tensors: ${inputTensors.length}');
       for (var tensor in inputTensors) {
         _logService.log('TfliteEmbeddingHandler', '  Input: ${tensor.name} shape=${tensor.shape} type=${tensor.type}');
       }
 
-      // Detect batch size — do NOT resize, we will pad inputs instead
       if (inputTensors.isNotEmpty) {
         final firstShape = inputTensors.first.shape;
         _modelBatchSize = firstShape.length >= 2 ? firstShape[0] : 1;
@@ -105,56 +150,29 @@ class TfliteEmbeddingHandler {
       _logService.log('TfliteEmbeddingHandler', 'Output type: $_outputType, dim: $_embeddingDimension');
 
       _logService.log('TfliteEmbeddingHandler', 'Running test embedding...');
-
-      // Try test embedding with retry logic for non-fp32 models
       Float32List? testResult;
       try {
+        // Temporarily assign interpreter to run embed()
+        _interpreter = interpreter;
+        _currentModelPath = modelPath;
+        _isInitialized = true;
         testResult = await embed('test');
       } catch (e) {
-        _logService.log('TfliteEmbeddingHandler', 'First test embed failed: $e');
-      }
-
-      // If first attempt failed, try recreating interpreter with different options
-      if (testResult == null || testResult.isEmpty) {
-        _logService.log('TfliteEmbeddingHandler', 'Trying with different interpreter options...');
-        _interpreter?.close();
-
-        // Try with fewer threads
-        final retryOptions = InterpreterOptions()..threads = 2;
-        try {
-          _interpreter = await Interpreter.fromFile(File(modelPath), options: retryOptions);
-          _logService.log('TfliteEmbeddingHandler', 'Retry: Interpreter created with threads=2');
-          testResult = await embed('test');
-        } catch (e) {
-          _logService.log('TfliteEmbeddingHandler', 'Retry with threads=2 failed: $e');
-        }
-      }
-
-      // If still failing, try without any delegate
-      if (testResult == null || testResult.isEmpty) {
-        _logService.log('TfliteEmbeddingHandler', 'Trying with minimal options...');
-        _interpreter?.close();
-        try {
-          final minimalOptions = InterpreterOptions();
-          // Force CPU only by setting no delegate
-          _interpreter = await Interpreter.fromFile(File(modelPath), options: minimalOptions);
-          _logService.log('TfliteEmbeddingHandler', 'Retry: Interpreter created with minimal options');
-          testResult = await embed('test');
-        } catch (e) {
-          _logService.log('TfliteEmbeddingHandler', 'Retry with minimal options failed: $e');
-        }
+        _logService.log('TfliteEmbeddingHandler', 'Test embed failed: $e');
+        testResult = null;
       }
 
       if (testResult != null && testResult.isNotEmpty) {
         _embeddingDimension = testResult.length;
-        _isInitialized = true;
-        _currentModelPath = modelPath;
-        _logService.log('TfliteEmbeddingHandler', '=== Init OK. Dim: $_embeddingDimension ===');
+        _logService.log('TfliteEmbeddingHandler', '=== Init OK. Dim: $_embeddingDimension. RSS: ${_getNativeMemoryKb()} KB ===');
         return true;
       } else {
-        _logService.log('TfliteEmbeddingHandler', 'ERROR: Test embedding failed with all configurations');
-        _logService.log('TfliteEmbeddingHandler', 'HINT: This model may require float32 format. '
-            'Try converting the model or using a float32 version.');
+        _logService.log('TfliteEmbeddingHandler', 'ERROR: Test embedding failed');
+        // Clean up — close interpreter since init failed
+        interpreter.close();
+        _interpreter = null;
+        _isInitialized = false;
+        _currentModelPath = null;
         return false;
       }
     } catch (e, stackTrace) {
@@ -367,22 +385,7 @@ class TfliteEmbeddingHandler {
           _padToBatch(tokenTypeIds),
         ];
 
-        try {
-          _interpreter!.runForMultipleInputs(inputs, {0: outputBuffer});
-        } catch (e) {
-          _logService.log('TfliteEmbeddingHandler', 'runForMultipleInputs failed, trying alternative approach: $e');
-
-          // Alternative: Try running with single input array flattened
-          // Some models work better with this approach
-          try {
-            final singleInput = _padToBatch(inputIds);
-            _interpreter!.run(singleInput, outputBuffer);
-            _logService.log('TfliteEmbeddingHandler', 'Alternative run succeeded');
-          } catch (e2) {
-            _logService.log('TfliteEmbeddingHandler', 'Alternative run also failed: $e2');
-            rethrow;
-          }
-        }
+        _interpreter!.runForMultipleInputs(inputs, {0: outputBuffer});
       } else {
         _interpreter!.run(_padToBatch(inputIds), outputBuffer);
       }
@@ -416,17 +419,21 @@ class TfliteEmbeddingHandler {
   }
 
   Future<void> close() async {
-    _interpreter?.close();
-    _interpreter = null;
-    _isInitialized = false;
-    _embeddingDimension = 0;
-    _modelBatchSize = 1;
-    _currentModelPath = null;
-    _hasThreeInputs = false;
-    _vocab = null;
-    _outputType = TensorType.float32;
-    _outputScale = 1.0;
-    _outputZeroPoint = 0;
+    if (_interpreter != null) {
+      _logService.log('TfliteEmbeddingHandler', 'Closing interpreter. RSS before: ${_getNativeMemoryKb()} KB');
+      _interpreter!.close();
+      _interpreter = null;
+      _isInitialized = false;
+      _embeddingDimension = 0;
+      _modelBatchSize = 1;
+      _currentModelPath = null;
+      _hasThreeInputs = false;
+      _vocab = null;
+      _outputType = TensorType.float32;
+      _outputScale = 1.0;
+      _outputZeroPoint = 0;
+      _logService.log('TfliteEmbeddingHandler', 'Interpreter closed. RSS after: ${_getNativeMemoryKb()} KB');
+    }
   }
 
   bool isReady() => _isInitialized;

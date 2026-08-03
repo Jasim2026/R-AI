@@ -226,6 +226,14 @@ class EmbeddingModelProvider extends ChangeNotifier {
       return false;
     }
 
+    // CRITICAL: Skip if same model is already loaded.
+    // Interpreter.close() does not free native memory, so re-loading the same
+    // model creates a second leaked interpreter, causing OOM on low-RAM devices.
+    if (_isLoaded && _selectedModel?.id == model.id) {
+      _logService.log('EmbeddingModelProvider', 'Same model already loaded (${model.name}), skipping');
+      return true;
+    }
+
     _isLoading = true;
     _error = null;
     notifyListeners();
