@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import '../providers/rag_provider.dart';
 import '../models/embedding_model.dart';
 import '../models/vector_db.dart';
 import '../services/cache_service.dart';
+import '../services/keyword_db_service.dart';
 import '../services/vector_db_service.dart';
 import '../widgets/gradient_background.dart';
 import '../utils/theme.dart';
@@ -549,6 +551,8 @@ class _DocumentsTab extends StatelessWidget {
   }
 
   Widget _buildDbCard(BuildContext context, RagProvider provider, VectorDb db) {
+    final isKeyword = db.embeddingDimension == 0;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -558,6 +562,16 @@ class _DocumentsTab extends StatelessWidget {
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        onTap: () {
+          if (isKeyword) {
+            _showKeywordDbChunks(context, db);
+          } else {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => VectorDbDetailScreen(db: db)),
+            );
+          }
+        },
         leading: Container(
           width: 36,
           height: 36,
@@ -580,7 +594,7 @@ class _DocumentsTab extends StatelessWidget {
           ),
         ),
         subtitle: Text(
-          db.embeddingDimension == 0
+          isKeyword
               ? '${db.chunkCount} chunks · keyword'
               : '${db.chunkCount} chunks · ${db.embeddingDimension}d',
           style: AppColors.font(
@@ -591,19 +605,20 @@ class _DocumentsTab extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (db.embeddingDimension > 0)
-              IconButton(
-                icon: Icon(Icons.chevron_right, size: 20),
-                color: AppColors.textHint,
-                onPressed: () {
+            IconButton(
+              icon: Icon(Icons.chevron_right, size: 20),
+              color: AppColors.textHint,
+              onPressed: () {
+                if (isKeyword) {
+                  _showKeywordDbChunks(context, db);
+                } else {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => VectorDbDetailScreen(db: db),
-                    ),
+                    MaterialPageRoute(builder: (_) => VectorDbDetailScreen(db: db)),
                   );
-                },
-              ),
+                }
+              },
+            ),
             IconButton(
               icon: Icon(Icons.delete_outline, size: 18),
               color: AppColors.error,
@@ -637,6 +652,28 @@ class _DocumentsTab extends StatelessWidget {
     );
   }
 
+  void _showKeywordDbChunks(BuildContext context, VectorDb db) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.75,
+        minChildSize: 0.4,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (ctx, scrollController) => _KeywordDbChunksSheet(
+          dbName: db.name,
+          displayName: db.displayName,
+          scrollController: scrollController,
+        ),
+      ),
+    );
+  }
+
   Widget _buildImportDocumentButton(BuildContext context, RagProvider provider) {
     return SizedBox(
       width: double.infinity,
@@ -647,72 +684,83 @@ class _DocumentsTab extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
           onTap: () async {
-            final result = await FilePicker.platform.pickFiles(
-              type: FileType.custom,
-              allowedExtensions: ['txt', 'md', 'json', 'csv'],
-            );
+            try {
+              final result = await FilePicker.platform.pickFiles(
+                type: FileType.custom,
+                allowedExtensions: ['txt', 'md', 'json', 'csv'],
+              );
 
-            if (result == null || result.files.isEmpty) return;
+              if (result == null || result.files.isEmpty) return;
 
-            final file = result.files.first;
-            if (file.path == null) return;
+              final file = result.files.first;
+              if (file.path == null) return;
 
-            final nameController = TextEditingController(
-              text: file.name.replaceAll(RegExp(r'\.[^.]+$'), ''),
-            );
+              final nameController = TextEditingController(
+                text: file.name.replaceAll(RegExp(r'\.[^.]+$'), ''),
+              );
 
-            if (!context.mounted) return;
+              if (!context.mounted) return;
 
-            final dbName = await showDialog<String>(
-              context: context,
-              builder: (context) => AlertDialog(
-                backgroundColor: AppColors.surface,
-                title: Text('Name Database'),
-                content: TextField(
-                  controller: nameController,
-                  style: AppColors.font(color: AppColors.textPrimary),
-                  decoration: const InputDecoration(
-                    hintText: 'Enter database name',
-                    filled: true,
-                    fillColor: AppColors.surfaceLight,
+              final dbName = await showDialog<String>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  backgroundColor: AppColors.surface,
+                  title: Text('Name Database'),
+                  content: TextField(
+                    controller: nameController,
+                    style: AppColors.font(color: AppColors.textPrimary),
+                    decoration: const InputDecoration(
+                      hintText: 'Enter database name',
+                      filled: true,
+                      fillColor: AppColors.surfaceLight,
+                    ),
                   ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, nameController.text.trim()),
+                      child: Text('Process'),
+                    ),
+                  ],
                 ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: Text('Cancel'),
+              );
+
+              if (dbName == null || dbName.isEmpty) return;
+
+              final cacheService = context.read<CacheService>();
+              final chunkSize = cacheService.chunkAutoSize
+                  ? _computeAutoChunkSize(await File(file.path!).length())
+                  : cacheService.chunkSize;
+              final chunkOverlap = cacheService.chunkOverlap;
+              final separator = cacheService.chunkSeparator;
+
+              // Show processing dialog
+              if (!context.mounted) return;
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) => _ProcessingDialog(
+                  provider: provider,
+                  filePath: file.path!,
+                  dbName: dbName,
+                  chunkSize: chunkSize,
+                  chunkOverlap: chunkOverlap,
+                  separator: separator,
+                ),
+              );
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('File picker error: $e', style: AppColors.font(size: 12)),
+                    backgroundColor: AppColors.error,
                   ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, nameController.text.trim()),
-                    child: Text('Process'),
-                  ),
-                ],
-              ),
-            );
-
-            if (dbName == null || dbName.isEmpty) return;
-
-            final cacheService = context.read<CacheService>();
-            final chunkSize = cacheService.chunkAutoSize
-                ? _computeAutoChunkSize(await File(file.path!).length())
-                : cacheService.chunkSize;
-            final chunkOverlap = cacheService.chunkOverlap;
-            final separator = cacheService.chunkSeparator;
-
-            // Show processing dialog
-            if (!context.mounted) return;
-            showDialog(
-              context: context,
-              barrierDismissible: false,
-              builder: (context) => _ProcessingDialog(
-                provider: provider,
-                filePath: file.path!,
-                dbName: dbName,
-                chunkSize: chunkSize,
-                chunkOverlap: chunkOverlap,
-                separator: separator,
-              ),
-            );
+                );
+              }
+            }
           },
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -873,54 +921,93 @@ class _DocumentsTab extends StatelessWidget {
             );
             if (db == null || !context.mounted) return;
 
-            // Write DB bytes to user-selected location
-            final srcPath = db.filePath;
-            final srcFile = File(srcPath);
-            if (!await srcFile.exists()) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Source DB file not found', style: AppColors.font(size: 12)),
-                    backgroundColor: AppColors.error,
-                  ),
-                );
-              }
-              return;
-            }
-            final fileBytes = await srcFile.readAsBytes();
+            final isKeyword = db.embeddingDimension == 0;
 
-            final result = await FilePicker.platform.saveFile(
-              dialogTitle: 'Export Database',
-              fileName: '${db.name}.db',
-              type: FileType.custom,
-              allowedExtensions: ['db'],
-            );
-            if (!context.mounted) return;
+            if (isKeyword) {
+              // Keyword DB: export chunks as JSON
+              final chunks = await KeywordDbService.loadChunks(db.name);
+              final jsonData = {
+                'name': db.name,
+                'type': 'keyword',
+                'chunkCount': chunks.length,
+                'chunks': chunks.map((c) => {
+                  'chunk_idx': c['chunk_idx'],
+                  'text': c['text'],
+                  'source': c['source'],
+                }).toList(),
+              };
+              final jsonStr = const JsonEncoder.withIndent('  ').convert(jsonData);
+              final jsonBytes = Uint8List.fromList(utf8.encode(jsonStr));
 
-            if (result != null) {
-              try {
-                // Write bytes to the selected location
-                await File(result).writeAsBytes(fileBytes);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Exported to $result', style: AppColors.font(size: 12)),
-                    backgroundColor: AppColors.success,
-                  ),
-                );
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Export failed: $e', style: AppColors.font(size: 12)),
-                    backgroundColor: AppColors.error,
-                  ),
-                );
-              }
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Exported: ${db.name}.db', style: AppColors.font(size: 12)),
-                  backgroundColor: AppColors.success,
-                ),
+              final result = await FilePicker.platform.saveFile(
+                dialogTitle: 'Export Keyword Database',
+                fileName: '${db.name}.json',
+                type: FileType.custom,
+                allowedExtensions: ['json'],
               );
+              if (!context.mounted) return;
+
+              if (result != null) {
+                try {
+                  await File(result).writeAsBytes(jsonBytes);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Exported ${chunks.length} chunks to $result', style: AppColors.font(size: 12)),
+                      backgroundColor: AppColors.success,
+                    ),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Export failed: $e', style: AppColors.font(size: 12)),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                }
+              }
+            } else {
+              // Vector DB: export binary file
+              final srcPath = db.filePath;
+              final srcFile = File(srcPath);
+              if (!await srcFile.exists()) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Source DB file not found', style: AppColors.font(size: 12)),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                }
+                return;
+              }
+              final fileBytes = await srcFile.readAsBytes();
+
+              final result = await FilePicker.platform.saveFile(
+                dialogTitle: 'Export Database',
+                fileName: '${db.name}.db',
+                type: FileType.custom,
+                allowedExtensions: ['db'],
+              );
+              if (!context.mounted) return;
+
+              if (result != null) {
+                try {
+                  await File(result).writeAsBytes(fileBytes);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Exported to $result', style: AppColors.font(size: 12)),
+                      backgroundColor: AppColors.success,
+                    ),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Export failed: $e', style: AppColors.font(size: 12)),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                }
+              }
             }
           },
           child: Row(
@@ -1528,9 +1615,89 @@ class _RagSettingsTabState extends State<_RagSettingsTab> {
                 },
               ),
             ),
+            const SizedBox(height: 16),
+            _buildSectionHeader('SYSTEM PROMPTS'),
+            const SizedBox(height: 8),
+            _buildPromptEditor(
+              context: context,
+              cache: cache,
+              title: 'RAG Enabled Prompt',
+              subtitle: 'Used when RAG is ON and context is found',
+              currentValue: cache.ragOnSystemPrompt,
+              onChanged: (v) => cache.ragOnSystemPrompt = v,
+            ),
+            const SizedBox(height: 8),
+            _buildPromptEditor(
+              context: context,
+              cache: cache,
+              title: 'RAG Disabled Prompt',
+              subtitle: 'Used when RAG is OFF or no context found',
+              currentValue: cache.ragOffSystemPrompt,
+              onChanged: (v) => cache.ragOffSystemPrompt = v,
+            ),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildPromptEditor({
+    required BuildContext context,
+    required CacheService cache,
+    required String title,
+    required String subtitle,
+    required String currentValue,
+    required void Function(String) onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.edit_note, color: AppColors.primary, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppColors.font(color: AppColors.textPrimary, size: 13, weight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: AppColors.font(color: AppColors.textHint, size: 11),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            constraints: const BoxConstraints(maxHeight: 150),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.divider, width: 0.5),
+            ),
+            child: TextField(
+              controller: TextEditingController(text: currentValue),
+              maxLines: null,
+              style: AppColors.font(color: AppColors.textPrimary, size: 12, height: 1.4),
+              decoration: InputDecoration(
+                hintText: 'Enter system prompt...',
+                hintStyle: AppColors.font(color: AppColors.textHint, size: 12),
+                contentPadding: const EdgeInsets.all(12),
+                border: InputBorder.none,
+              ),
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1643,6 +1810,144 @@ class _RagSettingsTabState extends State<_RagSettingsTab> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _KeywordDbChunksSheet extends StatefulWidget {
+  final String dbName;
+  final String displayName;
+  final ScrollController scrollController;
+
+  const _KeywordDbChunksSheet({
+    required this.dbName,
+    required this.displayName,
+    required this.scrollController,
+  });
+
+  @override
+  State<_KeywordDbChunksSheet> createState() => _KeywordDbChunksSheetState();
+}
+
+class _KeywordDbChunksSheetState extends State<_KeywordDbChunksSheet> {
+  List<Map<String, dynamic>> _chunks = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadChunks();
+  }
+
+  Future<void> _loadChunks() async {
+    final chunks = await KeywordDbService.loadChunks(widget.dbName);
+    if (mounted) {
+      setState(() {
+        _chunks = chunks;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: AppColors.divider, width: 0.5)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.displayName,
+                      style: AppColors.font(color: AppColors.textPrimary, size: 16, weight: FontWeight.w600),
+                    ),
+                    Text(
+                      '${_chunks.length} chunks · keyword',
+                      style: AppColors.font(color: AppColors.textHint, size: 11),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.close, size: 20),
+                color: AppColors.textHint,
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _chunks.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No chunks found',
+                        style: AppColors.font(color: AppColors.textHint, size: 13),
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: widget.scrollController,
+                      padding: const EdgeInsets.all(12),
+                      itemCount: _chunks.length,
+                      itemBuilder: (ctx, i) {
+                        final chunk = _chunks[i];
+                        final text = chunk['text'] as String? ?? '';
+                        final chunkIdx = chunk['chunk_idx'] as int? ?? i;
+                        final source = chunk['source'] as String? ?? '';
+                        final preview = text.length > 200 ? '${text.substring(0, 200)}...' : text;
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceLight,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.divider, width: 0.5),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.accent.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      '#$chunkIdx',
+                                      style: AppColors.font(color: AppColors.accent, size: 10, weight: FontWeight.w600),
+                                    ),
+                                  ),
+                                  if (source.isNotEmpty) ...[
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      source,
+                                      style: AppColors.font(color: AppColors.textHint, size: 10),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                preview,
+                                style: AppColors.font(color: AppColors.textPrimary, size: 12, height: 1.4),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+        ),
+      ],
     );
   }
 }
