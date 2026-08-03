@@ -432,24 +432,33 @@ class _DocumentsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<RagProvider>(
       builder: (context, provider, _) {
+        final cache = context.read<CacheService>();
+        final isKwMode = cache.searchMode == 'keyword';
+
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
             _buildSectionHeader('DOCUMENTS'),
             const SizedBox(height: 8),
-            if (!provider.embeddingProvider.isLoaded)
+            // In vector mode without loaded model: show warning.
+            // In keyword mode: always show DB list (no model needed).
+            if (!isKwMode && !provider.embeddingProvider.isLoaded)
               _buildWarningCard(
                 'Load an embedding model first from the Embedder tab',
               )
             else if (provider.dbs.isEmpty)
               _buildEmptyState(
                 icon: Icons.description_outlined,
-                message: 'No documents indexed',
+                message: isKwMode
+                    ? 'No documents indexed. Add text or import a file to get started.'
+                    : 'No documents indexed',
               )
             else
               ...provider.dbs.map((db) => _buildDbCard(context, provider, db)),
             const SizedBox(height: 16),
-            if (provider.embeddingProvider.isLoaded) ...[
+            // In keyword mode: always show buttons.
+            // In vector mode: only show when model is loaded.
+            if (isKwMode || provider.embeddingProvider.isLoaded) ...[
               _buildImportDocumentButton(context, provider),
               const SizedBox(height: 8),
               _buildAddTextButton(context, provider),
@@ -571,7 +580,9 @@ class _DocumentsTab extends StatelessWidget {
           ),
         ),
         subtitle: Text(
-          '${db.chunkCount} chunks · ${db.embeddingDimension}d',
+          db.embeddingDimension == 0
+              ? '${db.chunkCount} chunks · keyword'
+              : '${db.chunkCount} chunks · ${db.embeddingDimension}d',
           style: AppColors.font(
             color: AppColors.textHint,
             size: 11,
@@ -580,18 +591,19 @@ class _DocumentsTab extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(
-              icon: Icon(Icons.chevron_right, size: 20),
-              color: AppColors.textHint,
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => VectorDbDetailScreen(db: db),
-                  ),
-                );
-              },
-            ),
+            if (db.embeddingDimension > 0)
+              IconButton(
+                icon: Icon(Icons.chevron_right, size: 20),
+                color: AppColors.textHint,
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => VectorDbDetailScreen(db: db),
+                    ),
+                  );
+                },
+              ),
             IconButton(
               icon: Icon(Icons.delete_outline, size: 18),
               color: AppColors.error,
