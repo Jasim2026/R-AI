@@ -165,16 +165,16 @@ class VectorDbService {
     await sink.flush();
     await sink.close();
 
-    // Update header with new chunk count
+    // Update header with new chunk count — only the 24-byte header, not the whole file
     header.setUint32(8, oldCount + texts.length, Endian.little);
-    final updated = header.buffer.asUint8List();
+    final updatedHeader = Uint8List.view(header.buffer.asUint8List().buffer, 0, _headerSize);
 
-    // Rewrite header: read full file, splice updated header, write back
+    // Rewrite: updated header + all data (old + new)
     final fullBytes = await file.readAsBytes();
     final dataBytes = fullBytes.sublist(_headerSize);
-    final newFile = Uint8List(updated.length + dataBytes.length);
-    newFile.setRange(0, updated.length, updated);
-    newFile.setRange(updated.length, newFile.length, dataBytes);
+    final newFile = Uint8List(_headerSize + dataBytes.length);
+    newFile.setRange(0, _headerSize, updatedHeader);
+    newFile.setRange(_headerSize, newFile.length, dataBytes);
     await file.writeAsBytes(newFile);
 
     _logService.log('VectorDbService', 'Chunks added successfully. New total: ${oldCount + texts.length} chunks');
