@@ -62,6 +62,7 @@ class ChatProvider extends ChangeNotifier {
   // Last RAG inference info (persistent)
   String? _lastRagChunkIds;
   String? _lastRagDbNames;
+  List<RagContext> _lastRagContexts = [];
 
   // Per-session selected DB names
   List<String> _selectedRagDbNames = [];
@@ -97,6 +98,7 @@ class ChatProvider extends ChangeNotifier {
   int get tokenCount => _tokenCount;
   String? get lastRagChunkIds => _lastRagChunkIds;
   String? get lastRagDbNames => _lastRagDbNames;
+  List<RagContext> get lastRagContexts => List.unmodifiable(_lastRagContexts);
   List<String> get selectedRagDbNames => List.unmodifiable(_selectedRagDbNames);
   RagProvider? get ragProvider => _ragProvider;
   ToolProvider? get toolProvider => _toolProvider;
@@ -436,6 +438,9 @@ class ChatProvider extends ChangeNotifier {
           final topK = _cacheService.ragTopK;
           _logService.log('ChatProvider', 'RAG search: topK=$topK');
 
+          // Cache dynamic default min score for this query (for seekbar UI)
+          _cacheService.cacheDefaultMinScore(userContent);
+
           // Show RAG progress
           _isRagSearching = true;
           _generationStatus = GenerationStatus.searchingDocuments;
@@ -455,9 +460,12 @@ class ChatProvider extends ChangeNotifier {
           List<dynamic> searchResults;
           if (isKeywordMode) {
             // Keyword search — no embedding model needed
+            final minScore = _cacheService.ragMinScore;
+            _logService.log('ChatProvider', 'Keyword search minScore=$minScore');
             searchResults = await _ragProvider!.searchKeyword(
               query: userContent,
               topK: topK,
+              minScore: minScore,
               dbNames: _selectedRagDbNames.isEmpty ? null : _selectedRagDbNames,
             );
           } else {
@@ -575,6 +583,7 @@ class ChatProvider extends ChangeNotifier {
               postResults = await _ragProvider!.searchKeyword(
                 query: userContent,
                 topK: topK,
+                minScore: _cacheService.ragMinScore,
                 dbNames: _selectedRagDbNames.isEmpty ? null : _selectedRagDbNames,
               );
             } else {
@@ -650,6 +659,7 @@ class ChatProvider extends ChangeNotifier {
         if (ragContextsUsed != null && ragContextsUsed.isNotEmpty) {
           _lastRagChunkIds = ragContextsUsed.map((c) => '${c.dbName}#${c.chunkId}').join(', ');
           _lastRagDbNames = ragContextsUsed.map((c) => c.dbName).toSet().join(', ');
+          _lastRagContexts = ragContextsUsed;
           _cacheService.lastRagChunkIds = _lastRagChunkIds;
           _cacheService.lastRagDbNames = _lastRagDbNames;
         }

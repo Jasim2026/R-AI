@@ -104,6 +104,61 @@ class CacheService {
   String get ragMode => _prefs.getString('rag_mode') ?? 'pre_generation';
   set ragMode(String value) => _prefs.setString('rag_mode', value);
 
+  // Keyword RAG minimum similarity threshold (BM25 score)
+  // Default is computed dynamically based on query complexity
+  double get ragMinScore => _prefs.getDouble('rag_min_score') ?? _defaultMinScore;
+  set ragMinScore(double value) => _prefs.setDouble('rag_min_score', value);
+
+  bool get ragMinScoreOverridden => _prefs.containsKey('rag_min_score');
+
+  /// Compute dynamic default minScore based on query keyword density.
+  /// More meaningful keywords → higher threshold to filter noise.
+  static double computeDefaultMinScore(String query) {
+    // Stopwords to exclude (same set as KeywordSearchEngine)
+    const stopwords = {
+      'a','an','the','and','or','but','if','in','on','at','to','for','of','with',
+      'by','from','as','is','was','are','were','be','been','being','have','has',
+      'had','do','does','did','will','would','could','should','may','might',
+      'shall','can','not','no','nor','so','too','very','just','than','that',
+      'this','these','those','it','its','he','she','they','we','you','i','me',
+      'my','your','his','her','our','their','what','which','who','whom','where',
+      'when','why','how','all','any','both','each','few','more','most','other',
+      'some','such','own','same','then','here','there','also','about','into',
+      'over','after','before','between','under','again','once','only','even',
+      'still','already','always','never','often','sometimes','usually','now',
+      'well','yes','maybe','thing','things','way','ways','much','many',
+    };
+
+    final words = query
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^\w\s]'), ' ')
+        .split(RegExp(r'\s+'))
+        .where((w) => w.length >= 2 && !stopwords.contains(w))
+        .toList();
+
+    final keywordCount = words.length;
+
+    // Sweet-spot algorithm:
+    // 0-2 keywords  → low threshold (0.5)  — few terms, cast wide net
+    // 3-4 keywords  → moderate (2.0)       — enough signal to filter
+    // 5-6 keywords  → high (4.0)           — strong signal, filter noise
+    // 7+ keywords   → aggressive (6.0)     — very specific query
+    if (keywordCount <= 2) return 0.5;
+    if (keywordCount <= 4) return 2.0;
+    if (keywordCount <= 6) return 4.0;
+    return 6.0;
+  }
+
+  double get _defaultMinScore {
+    // Use last query's computed default if available, otherwise 2.0
+    return _prefs.getDouble('rag_default_min_score') ?? 2.0;
+  }
+
+  /// Cache the computed default for the current query so seekbar starts at the right spot
+  void cacheDefaultMinScore(String query) {
+    _prefs.setDouble('rag_default_min_score', computeDefaultMinScore(query));
+  }
+
   bool get toolCallingEnabled => _prefs.getBool('tool_calling_enabled') ?? false;
   set toolCallingEnabled(bool value) => _prefs.setBool('tool_calling_enabled', value);
 

@@ -277,14 +277,16 @@ class RagProvider extends ChangeNotifier {
     required String query,
     List<String>? dbNames,
     int topK = 5,
+    double minScore = 0.01,
   }) async {
-    _logService.log('RagProvider', 'Keyword search: "${query.length > 80 ? query.substring(0, 80) + "..." : query}"');
+    _logService.log('RagProvider', 'Keyword search: "${query.length > 80 ? query.substring(0, 80) + "..." : query}" minScore=$minScore');
 
     try {
       final results = await KeywordDbService.search(
         query: query,
         dbNames: dbNames,
         topK: topK,
+        minScore: minScore,
       );
 
       _logService.log('RagProvider', 'Keyword search returned ${results.length} results');

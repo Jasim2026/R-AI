@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/chat_provider.dart';
+import '../services/cache_service.dart';
 import '../utils/theme.dart';
 
 class ChatInput extends StatefulWidget {
@@ -14,6 +16,7 @@ class _ChatInputState extends State<ChatInput> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   bool _hasText = false;
+  bool _showThresholdPanel = false;
 
   @override
   void initState() {
@@ -200,42 +203,76 @@ class _ChatInputState extends State<ChatInput> {
                   ),
                 ),
               ),
-            // RAG chunk toolbar — shows last used context DBs and chunk IDs
+            // RAG chunk toolbar — shows last used context DBs and chunk IDs + threshold control
             if (!isBusy)
               chatProvider.lastRagChunkIds != null && chatProvider.lastRagChunkIds!.isNotEmpty
-                  ? Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: AppColors.accent.withOpacity(0.06),
-                        border: Border(
-                          top: BorderSide(
-                            color: AppColors.accent.withOpacity(0.15),
-                            width: 0.5,
-                          ),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.bookmark_outline,
-                            size: 12,
-                            color: AppColors.accent.withOpacity(0.7),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              '${chatProvider.lastRagDbNames ?? ""}  •  ${chatProvider.lastRagChunkIds}',
-                              style: AppColors.font(
-                                size: 10,
-                                color: AppColors.accent.withOpacity(0.7),
-                                weight: FontWeight.w500,
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: AppColors.accent.withOpacity(0.06),
+                            border: Border(
+                              top: BorderSide(
+                                color: AppColors.accent.withOpacity(0.15),
+                                width: 0.5,
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                        ],
-                      ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.bookmark_outline,
+                                size: 12,
+                                color: AppColors.accent.withOpacity(0.7),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  '${chatProvider.lastRagDbNames ?? ""}  •  ${chatProvider.lastRagChunkIds}',
+                                  style: AppColors.font(
+                                    size: 10,
+                                    color: AppColors.accent.withOpacity(0.7),
+                                    weight: FontWeight.w500,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              // Threshold dropdown toggle button
+                              GestureDetector(
+                                onTap: () {
+                                  HapticFeedback.lightImpact();
+                                  setState(() => _showThresholdPanel = !_showThresholdPanel);
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: _showThresholdPanel
+                                        ? AppColors.accent.withOpacity(0.15)
+                                        : AppColors.accent.withOpacity(0.08),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Icon(
+                                    _showThresholdPanel
+                                        ? Icons.expand_less
+                                        : Icons.tune,
+                                    size: 14,
+                                    color: AppColors.accent.withOpacity(0.8),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Threshold seekbar panel (expands below)
+                        if (_showThresholdPanel)
+                          _ThresholdPanel(
+                            chatProvider: chatProvider,
+                            cacheService: context.read<CacheService>(),
+                          ),
+                      ],
                     )
                   : const SizedBox.shrink(),
             // Input area
@@ -344,6 +381,202 @@ class _ChatInputState extends State<ChatInput> {
             color: Colors.white,
             size: 22,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// Inline seekbar panel for adjusting keyword RAG similarity threshold
+class _ThresholdPanel extends StatefulWidget {
+  final ChatProvider chatProvider;
+  final CacheService cacheService;
+
+  const _ThresholdPanel({
+    required this.chatProvider,
+    required this.cacheService,
+  });
+
+  @override
+  State<_ThresholdPanel> createState() => _ThresholdPanelState();
+}
+
+class _ThresholdPanelState extends State<_ThresholdPanel> {
+  late double _currentValue;
+  late bool _isOverridden;
+
+  // BM25 practical score range for seekbar
+  static const double _min = 0.0;
+  static const double _max = 30.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _isOverridden = widget.cacheService.ragMinScoreOverridden;
+    _currentValue = widget.cacheService.ragMinScore;
+    _clamp();
+  }
+
+  void _clamp() {
+    if (_currentValue < _min) _currentValue = _min;
+    if (_currentValue > _max) _currentValue = _max;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final contexts = widget.chatProvider.lastRagContexts;
+    final passingCount = contexts.where((c) => c.score >= _currentValue).length;
+    final totalCount = contexts.length;
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.accent.withOpacity(0.04),
+          border: Border(
+            top: BorderSide(
+              color: AppColors.accent.withOpacity(0.1),
+              width: 0.5,
+            ),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Seekbar row
+            Row(
+              children: [
+                Icon(
+                  Icons.filter_alt_outlined,
+                  size: 12,
+                  color: AppColors.accent.withOpacity(0.6),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'min',
+                  style: AppColors.font(
+                    size: 9,
+                    color: AppColors.textSecondary.withOpacity(0.6),
+                    weight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                      activeTrackColor: AppColors.accent.withOpacity(0.6),
+                      inactiveTrackColor: AppColors.accent.withOpacity(0.15),
+                      thumbColor: AppColors.accent,
+                      overlayColor: AppColors.accent.withOpacity(0.1),
+                    ),
+                    child: Slider(
+                      value: _currentValue,
+                      min: _min,
+                      max: _max,
+                      divisions: 60,
+                      onChanged: (v) {
+                        setState(() => _currentValue = v);
+                      },
+                      onChangeEnd: (v) {
+                        // Persist on release
+                        widget.cacheService.ragMinScore = v;
+                        HapticFeedback.selectionClick();
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                SizedBox(
+                  width: 30,
+                  child: Text(
+                    _currentValue.toStringAsFixed(1),
+                    style: AppColors.font(
+                      size: 10,
+                      color: AppColors.accent,
+                      weight: FontWeight.w700,
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+              ],
+            ),
+            // Passing chunks preview
+            if (contexts.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Text(
+                    '$passingCount/$totalCount pass',
+                    style: AppColors.font(
+                      size: 9,
+                      color: AppColors.textSecondary.withOpacity(0.5),
+                      weight: FontWeight.w500,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (_isOverridden)
+                    GestureDetector(
+                      onTap: () {
+                        // Reset to dynamic default
+                        final query = widget.chatProvider.lastRagChunkIds ?? '';
+                        widget.cacheService.ragMinScore = CacheService.computeDefaultMinScore(query);
+                        setState(() {
+                          _currentValue = widget.cacheService.ragMinScore;
+                          _isOverridden = false;
+                        });
+                      },
+                      child: Text(
+                        'reset',
+                        style: AppColors.font(
+                          size: 9,
+                          color: AppColors.accent.withOpacity(0.6),
+                          weight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              // Show up to 3 passing chunks
+              ...contexts
+                  .where((c) => c.score >= _currentValue)
+                  .take(3)
+                  .map((c) => Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 3,
+                              height: 3,
+                              decoration: BoxDecoration(
+                                color: AppColors.accent.withOpacity(0.5),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Expanded(
+                              child: Text(
+                                '${c.dbName}#${c.chunkId}  ${c.score.toStringAsFixed(1)}  ${c.text.length > 40 ? c.text.substring(0, 40) + '...' : c.text}',
+                                style: AppColors.font(
+                                  size: 8,
+                                  color: AppColors.textSecondary.withOpacity(0.6),
+                                  weight: FontWeight.w400,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )),
+            ],
+          ],
         ),
       ),
     );

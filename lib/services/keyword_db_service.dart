@@ -114,6 +114,7 @@ class KeywordDbService {
     required String query,
     List<String>? dbNames,
     int topK = 5,
+    double minScore = 0.01,
   }) async {
     _logService.log('KeywordDbService', 'Searching with query: "${query.length > 80 ? query.substring(0, 80) + "..." : query}"');
     final db = await _getDb();
@@ -158,6 +159,7 @@ class KeywordDbService {
       query: query,
       chunks: allChunks,
       topK: topK,
+      minScore: minScore,
     );
 
     _logService.log('KeywordDbService', 'Search returned ${results.length} results');
